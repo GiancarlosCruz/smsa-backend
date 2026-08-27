@@ -1,0 +1,378 @@
+openapi: 3.0.3
+info:
+  title: Módulo Usuarios y Perfiles
+  version: "1.0.0"
+  description: >
+    Contrato inicial del módulo de Usuarios y Perfiles, integrado con Keycloak.
+    Los endpoints validan el JWT emitido por el realm edu-superior.
+
+servers:
+  - url: https://api.tuinstitucion.edu.pe/v1
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: perfil-propio
+  - name: gestion-usuarios
+
+paths:
+  /usuarios/me:
+    get:
+      tags: [perfil-propio]
+      summary: Obtener el perfil del usuario autenticado
+      operationId: obtenerPerfilPropio
+      responses:
+        "200":
+          description: Perfil del usuario autenticado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsuarioPerfilResponse"
+        "401":
+          $ref: "#/components/responses/NoAutenticado"
+
+    patch:
+      tags: [perfil-propio]
+      summary: Actualizar datos editables del propio perfil (no incluye rol ni sede)
+      operationId: actualizarPerfilPropio
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActualizarPerfilPropioRequest"
+      responses:
+        "200":
+          description: Perfil actualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsuarioPerfilResponse"
+        "400":
+          $ref: "#/components/responses/SolicitudInvalida"
+        "401":
+          $ref: "#/components/responses/NoAutenticado"
+
+  /usuarios/me/password:
+    patch:
+      tags: [perfil-propio]
+      summary: Cambiar la propia contraseña
+      operationId: cambiarPasswordPropio
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CambiarPasswordRequest"
+      responses:
+        "204":
+          description: Contraseña actualizada
+        "400":
+          $ref: "#/components/responses/SolicitudInvalida"
+        "401":
+          $ref: "#/components/responses/NoAutenticado"
+
+  /usuarios:
+    get:
+      tags: [gestion-usuarios]
+      summary: Listar usuarios (solo admin, filtrado por sedes permitidas)
+      operationId: listarUsuarios
+      parameters:
+        - name: sedeId
+          in: query
+          schema: { type: integer, format: int64 }
+          description: >
+            Si se omite, se listan todas las sedes permitidas para el admin
+            autenticado (todas, si es admin global).
+        - name: rol
+          in: query
+          schema: { $ref: "#/components/schemas/Rol" }
+        - name: estado
+          in: query
+          schema: { $ref: "#/components/schemas/EstadoUsuario" }
+        - name: q
+          in: query
+          description: Búsqueda por nombre o número de documento
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: Listado paginado de usuarios
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsuarioAdminListPage"
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+
+    post:
+      tags: [gestion-usuarios]
+      summary: Crear un usuario nuevo (provisiona en Keycloak y en la BD local)
+      operationId: crearUsuario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CrearUsuarioRequest"
+      responses:
+        "201":
+          description: Usuario creado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsuarioAdminDetalle"
+        "400":
+          $ref: "#/components/responses/SolicitudInvalida"
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+        "409":
+          description: Documento o email ya existe
+
+  /usuarios/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    get:
+      tags: [gestion-usuarios]
+      summary: Obtener detalle de un usuario (admin)
+      operationId: obtenerUsuario
+      responses:
+        "200":
+          description: Detalle de usuario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsuarioAdminDetalle"
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+        "404":
+          $ref: "#/components/responses/NoEncontrado"
+
+    put:
+      tags: [gestion-usuarios]
+      summary: Actualizar datos administrativos de un usuario (admin)
+      operationId: actualizarUsuario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActualizarUsuarioRequest"
+      responses:
+        "200":
+          description: Usuario actualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsuarioAdminDetalle"
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+        "404":
+          $ref: "#/components/responses/NoEncontrado"
+
+  /usuarios/{id}/estado:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    patch:
+      tags: [gestion-usuarios]
+      summary: Activar, suspender o inactivar un usuario (admin)
+      operationId: cambiarEstadoUsuario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [estado]
+              properties:
+                estado: { $ref: "#/components/schemas/EstadoUsuario" }
+                motivo: { type: string }
+      responses:
+        "200":
+          description: Estado actualizado
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+        "404":
+          $ref: "#/components/responses/NoEncontrado"
+
+  /usuarios/{id}/roles:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    post:
+      tags: [gestion-usuarios]
+      summary: Asignar rol y sede a un usuario
+      operationId: asignarRolSede
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AsignarRolRequest"
+      responses:
+        "201":
+          description: Rol asignado
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+        "404":
+          $ref: "#/components/responses/NoEncontrado"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    NoAutenticado:
+      description: Token ausente o inválido
+    SinPermiso:
+      description: El usuario autenticado no tiene rol o sede suficiente
+    NoEncontrado:
+      description: Recurso no encontrado
+    SolicitudInvalida:
+      description: Datos de la solicitud inválidos
+
+  schemas:
+    Rol:
+      type: string
+      enum: [ADMIN, DOCENTE, ESTUDIANTE]
+
+    EstadoUsuario:
+      type: string
+      enum: [ACTIVO, INACTIVO, SUSPENDIDO]
+
+    UsuarioBase:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        nombres: { type: string }
+        apellidoPaterno: { type: string }
+        apellidoMaterno: { type: string }
+        email: { type: string, format: email }
+        telefono: { type: string }
+        estado: { $ref: "#/components/schemas/EstadoUsuario" }
+        rol: { $ref: "#/components/schemas/Rol" }
+        sedes:
+          type: array
+          items: { type: integer, format: int64 }
+
+    UsuarioPerfilResponse:
+      allOf:
+        - $ref: "#/components/schemas/UsuarioBase"
+        - type: object
+          properties:
+            perfilDocente:
+              $ref: "#/components/schemas/PerfilDocente"
+            perfilEstudiante:
+              $ref: "#/components/schemas/PerfilEstudiante"
+
+    PerfilDocente:
+      type: object
+      properties:
+        gradoAcademico: { type: string }
+        especialidad: { type: string }
+        tipoContrato: { type: string }
+        fechaIngreso: { type: string, format: date }
+
+    PerfilEstudiante:
+      type: object
+      properties:
+        codigoEstudiante: { type: string }
+        programaId: { type: integer, format: int64 }
+        contactoEmergenciaNombre: { type: string }
+        contactoEmergenciaTelefono: { type: string }
+        direccion: { type: string }
+
+    ActualizarPerfilPropioRequest:
+      type: object
+      description: Solo campos que el propio usuario puede editar (no rol ni sede)
+      properties:
+        telefono: { type: string }
+        direccion: { type: string }
+        contactoEmergenciaNombre: { type: string }
+        contactoEmergenciaTelefono: { type: string }
+
+    CambiarPasswordRequest:
+      type: object
+      required: [passwordNueva]
+      properties:
+        passwordNueva:
+          type: string
+          minLength: 8
+
+    UsuarioAdminListItem:
+      allOf:
+        - $ref: "#/components/schemas/UsuarioBase"
+
+    UsuarioAdminListPage:
+      type: object
+      properties:
+        contenido:
+          type: array
+          items: { $ref: "#/components/schemas/UsuarioAdminListItem" }
+        totalElementos: { type: integer }
+        pagina: { type: integer }
+        tamanioPagina: { type: integer }
+
+    UsuarioAdminDetalle:
+      allOf:
+        - $ref: "#/components/schemas/UsuarioPerfilResponse"
+
+    CrearUsuarioRequest:
+      type: object
+      required: [tipoDocumento, numeroDocumento, nombres, apellidoPaterno, email, rol, sedeId]
+      properties:
+        tipoDocumento: { type: string }
+        numeroDocumento: { type: string }
+        nombres: { type: string }
+        apellidoPaterno: { type: string }
+        apellidoMaterno: { type: string }
+        telefono: { type: string }
+        email: { type: string, format: email }
+        rol: { $ref: "#/components/schemas/Rol" }
+        sedeId: { type: integer, format: int64 }
+        perfilDocente:
+          $ref: "#/components/schemas/PerfilDocente"
+        perfilEstudiante:
+          $ref: "#/components/schemas/PerfilEstudiante"
+
+    ActualizarUsuarioRequest:
+      type: object
+      properties:
+        nombres: { type: string }
+        apellidoPaterno: { type: string }
+        apellidoMaterno: { type: string }
+        telefono: { type: string }
+        perfilDocente:
+          $ref: "#/components/schemas/PerfilDocente"
+        perfilEstudiante:
+          $ref: "#/components/schemas/PerfilEstudiante"
+
+    AsignarRolRequest:
+      type: object
+      required: [rol, sedeId]
+      properties:
+        rol: { $ref: "#/components/schemas/Rol" }
+        sedeId:
+          type: integer
+          format: int64
+          nullable: true
+          description: null = acceso a todas las sedes (solo válido para rol ADMIN)
+        fechaInicio: { type: string, format: date }
+        fechaFin: { type: string, format: date, nullable: true }

@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: matricula-postgres
+    environment:
+      POSTGRES_DB: matricula
+      POSTGRES_USER: matricula
+      POSTGRES_PASSWORD: matricula
+    ports:
+      - "5432:5432"
+    volumes:
+      - matricula_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U matricula -d matricula"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: matricula-keycloak
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      # 8180 externo porque coincide con KEYCLOAK_URL del application.properties (%dev).
+      # Interno sigue en 8080, el puerto por defecto de la imagen.
+      - "8180:8080"
+    volumes:
+      - matricula_keycloak_data:/opt/keycloak/data
+
+volumes:
+  matricula_postgres_data:
+  matricula_keycloak_data:
