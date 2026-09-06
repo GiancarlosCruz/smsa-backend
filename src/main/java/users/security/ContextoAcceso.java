@@ -18,12 +18,18 @@ public class ContextoAcceso {
   private final Rol rol;
   private final List<Long> sedesPermitidas; // null = acceso a todas las sedes
   private final boolean adminGlobal;
+  private final Long cargoId; // null si el rol no es ADMINISTRATIVO o no tiene cargo asignado
 
-  public ContextoAcceso(Long usuarioId, Rol rol, List<Long> sedesPermitidas, boolean adminGlobal) {
+  public ContextoAcceso(Long usuarioId, Rol rol, List<Long> sedesPermitidas, boolean adminGlobal, Long cargoId) {
     this.usuarioId = usuarioId;
     this.rol = rol;
     this.sedesPermitidas = sedesPermitidas;
     this.adminGlobal = adminGlobal;
+    this.cargoId = cargoId;
+  }
+
+  public Long cargoId() {
+    return cargoId;
   }
 
   public Long usuarioId() {

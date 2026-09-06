@@ -8,5 +8,6 @@ package users.domain.model;
 public enum Rol {
   ADMIN,
   DOCENTE,
-  ESTUDIANTE
+  ESTUDIANTE,
+  ADMINISTRATIVO
 }

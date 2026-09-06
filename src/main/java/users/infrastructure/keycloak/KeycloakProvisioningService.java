@@ -34,6 +34,9 @@ public class KeycloakProvisioningService {
   @ConfigProperty(name = "quarkus.keycloak.admin-client.realm")
   String realmName;
 
+  @ConfigProperty(name = "quarkus.keycloak.admin-client.target-client-id")
+  String targetClientId;
+
   /**
    * Crea el usuario en Keycloak con el DNI como username Y como contraseña
    * inicial, marcada temporal (fuerza a Keycloak a exigir un cambio en el
@@ -60,6 +63,7 @@ public class KeycloakProvisioningService {
     representacion.setCredentials(List.of(credencialInicial(numeroDocumento)));
 
     UsersResource usersResource = realm().users();
+
     try (Response respuesta = usersResource.create(representacion)) {
       if (respuesta.getStatus() != 201) {
         throw new KeycloakSyncException(
@@ -141,9 +145,25 @@ public class KeycloakProvisioningService {
   }
 
   private void asignarRol(String keycloakId, Rol rol) {
-    RoleRepresentation roleRepresentation =
-            realm().roles().get(rol.name()).toRepresentation();
-    realm().users().get(keycloakId).roles().realmLevel().add(List.of(roleRepresentation));
+    // 1. Obtener la lista de clientes y buscar por clientId exacto ignorando espacios/mayúsculas
+    String clientUuid = realm().clients().findAll().stream()
+            .filter(c -> targetClientId.trim().equalsIgnoreCase(c.getClientId()))
+            .findFirst()
+            .orElseThrow(() -> new IllegalStateException("Cliente no encontrado: [" + targetClientId + "]"))
+            .getId();
+
+    // 2. Obtener el rol del cliente
+    RoleRepresentation roleRepresentation = realm().clients()
+            .get(clientUuid)
+            .roles()
+            .get(rol.name())
+            .toRepresentation();
+
+    // 3. Asignar el rol a nivel de cliente
+    realm().users().get(keycloakId)
+            .roles()
+            .clientLevel(clientUuid)
+            .add(List.of(roleRepresentation));
   }
 
   private RealmResource realm() {

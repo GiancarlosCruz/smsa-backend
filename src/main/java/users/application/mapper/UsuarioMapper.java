@@ -6,10 +6,7 @@ import org.mapstruct.MappingConstants;
 import users.api.generated.model.UsuarioAdminDetalle;
 import users.api.generated.model.UsuarioAdminListItem;
 import users.api.generated.model.UsuarioPerfilResponse;
-import users.domain.model.DocentePerfil;
-import users.domain.model.EstudiantePerfil;
-import users.domain.model.Rol;
-import users.domain.model.Usuario;
+import users.domain.model.*;
 
 import java.util.List;
 
@@ -56,9 +53,10 @@ public interface UsuarioMapper {
   @Mapping(target = "sedes", source = "sedes")
   @Mapping(target = "perfilDocente", source = "docentePerfil")
   @Mapping(target = "perfilEstudiante", source = "estudiantePerfil")
+  @Mapping(target = "perfilAdministrativo", source = "administrativoPerfil")
   @Mapping(target = "removeSedesItem", ignore = true)
   UsuarioAdminDetalle aDetalle(Usuario usuario, Rol rol, List<Long> sedes,
-                               DocentePerfil docentePerfil, EstudiantePerfil estudiantePerfil);
+                               DocentePerfil docentePerfil, EstudiantePerfil estudiantePerfil, AdministrativoPerfil administrativoPerfil);
 
   @Mapping(target = "id", source = "usuario.id")
   @Mapping(target = "nombres", source = "usuario.nombres")
@@ -71,7 +69,8 @@ public interface UsuarioMapper {
   @Mapping(target = "sedes", source = "sedes")
   @Mapping(target = "perfilDocente", source = "docentePerfil")
   @Mapping(target = "perfilEstudiante", source = "estudiantePerfil")
+  @Mapping(target = "perfilAdministrativo", source = "administrativoPerfil")
   @Mapping(target = "removeSedesItem", ignore = true)
   UsuarioPerfilResponse aPerfilPropio(Usuario usuario, Rol rol, List<Long> sedes,
-                                      DocentePerfil docentePerfil, EstudiantePerfil estudiantePerfil);
+                                      DocentePerfil docentePerfil, EstudiantePerfil estudiantePerfil, AdministrativoPerfil administrativoPerfil);
 }

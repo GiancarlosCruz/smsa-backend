@@ -10,6 +10,7 @@ import users.application.RolSedeService;
 import users.application.UsuarioService;
 import users.domain.exception.AccesoSedeNoPermitidoException;
 import users.domain.exception.UsuarioNoEncontradoException;
+import users.domain.repository.AdministrativoPerfilRepository;
 import users.domain.repository.DocentePerfilRepository;
 import users.domain.repository.EstudiantePerfilRepository;
 import users.domain.repository.UsuarioRepository;
@@ -29,6 +30,7 @@ public class UsuarioAdminResource implements GestionUsuariosApi {
   @Inject UsuarioSedeRolRepository usuarioSedeRolRepository;
   @Inject DocentePerfilRepository docentePerfilRepository;
   @Inject EstudiantePerfilRepository estudiantePerfilRepository;
+  @Inject AdministrativoPerfilRepository administrativoPerfilRepository;
   @Inject ContextoAcceso contextoAcceso;
 
   @Override
@@ -124,6 +126,7 @@ public class UsuarioAdminResource implements GestionUsuariosApi {
 
     boolean esDocente = asignaciones.stream().anyMatch(a -> a.rol == users.domain.model.Rol.DOCENTE);
     boolean esEstudiante = asignaciones.stream().anyMatch(a -> a.rol == users.domain.model.Rol.ESTUDIANTE);
+    boolean esAdministrativo = asignaciones.stream().anyMatch(a -> a.rol == users.domain.model.Rol.ADMINISTRATIVO);
 
     if (esDocente) {
       docentePerfilRepository.buscarPorUsuarioId(usuario.id).ifPresent(dp -> {
@@ -144,6 +147,16 @@ public class UsuarioAdminResource implements GestionUsuariosApi {
         dto.setContactoEmergenciaTelefono(ep.contactoEmergenciaTelefono);
         dto.setDireccion(ep.direccion);
         detalle.setPerfilEstudiante(dto);
+      });
+    }
+    if (esAdministrativo) {
+      administrativoPerfilRepository.buscarPorUsuarioId(usuario.id).ifPresent(ap -> {
+        PerfilAdministrativo dto = new PerfilAdministrativo();
+        dto.setCargoId(ap.cargo.id);
+        dto.setCargoNombre(ap.cargo.nombre);
+        dto.setAreaAdministrativa(ap.areaAdministrativa);
+        dto.setCondicion(ap.condicion);
+        detalle.setPerfilAdministrativo(dto);
       });
     }
     return detalle;

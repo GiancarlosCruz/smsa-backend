@@ -3,8 +3,30 @@ info:
   title: Módulo Usuarios y Perfiles
   version: "1.0.0"
   description: >
-    Contrato inicial del módulo de Usuarios y Perfiles, integrado con Keycloak.
-    Los endpoints validan el JWT emitido por el realm edu-superior.
+    Módulo de identidad del sistema de matrícula: autenticación vía Keycloak
+    (realm `edu-superior`) y gestión de usuarios institucionales.
+
+
+    **Conceptos clave para entender este contrato:**
+
+
+    - Un usuario puede tener más de un rol al mismo tiempo (ej. un docente
+      que además tiene el rol ADMINISTRATIVO). El campo `rol` que aparece en
+      las respuestas es solo un valor "principal" informativo — la lista
+      completa de roles de una persona se administra vía
+      `POST /usuarios/{id}/roles`.
+
+    - Cada rol tiene su propio "perfil" con datos específicos:
+      `perfilDocente`, `perfilEstudiante`, `perfilAdministrativo`. Un mismo
+      usuario puede traer más de uno poblado a la vez si tiene varios roles.
+
+    - `ADMINISTRATIVO` es personal de oficina (secretaría, tesorería, etc.).
+      Su `cargo` (catálogo en `/cargos`) determina qué opciones de menú ve
+      en el frontend — esa parte del menú vive en el contrato del módulo
+      `menu`, no en este.
+
+    - Todos los endpoints requieren un Bearer token válido emitido por
+      Keycloak, salvo que se indique lo contrario.
 
 servers:
   - url: https://api.tuinstitucion.edu.pe/v1
@@ -14,13 +36,31 @@ security:
 
 tags:
   - name: perfil-propio
+    description: >
+      Lo que cualquier usuario autenticado puede hacer sobre SUS PROPIOS
+      datos, sin importar su rol (ADMIN, DOCENTE, ESTUDIANTE o
+      ADMINISTRATIVO).
   - name: gestion-usuarios
+    description: >
+      Operaciones administrativas sobre usuarios de terceros: crear,
+      listar, editar, cambiar estado, asignar roles. Requiere rol ADMIN.
+  - name: gestion-cargos
+    description: >
+      Catálogo de cargos administrativos (ej. "Secretaria General",
+      "Tesorería"). Un usuario ADMINISTRATIVO tiene exactamente un cargo, y
+      ese cargo determina qué opciones de menú ve (ver el contrato del
+      módulo `menu`). Requiere rol ADMIN.
 
 paths:
   /usuarios/me:
     get:
       tags: [perfil-propio]
       summary: Obtener el perfil del usuario autenticado
+      description: >
+        Devuelve los datos base del usuario más el perfil de cada rol que
+        tenga asignado. `perfilDocente`/`perfilEstudiante`/`perfilAdministrativo`
+        vienen poblados solo si el usuario efectivamente tiene ese rol —
+        pueden venir varios a la vez.
       operationId: obtenerPerfilPropio
       responses:
         "200":
@@ -34,7 +74,12 @@ paths:
 
     patch:
       tags: [perfil-propio]
-      summary: Actualizar datos editables del propio perfil (no incluye rol ni sede)
+      summary: Actualizar datos editables del propio perfil
+      description: >
+        Solo campos de contacto (teléfono, dirección, contacto de
+        emergencia). Nunca permite cambiar rol, sede, documento de
+        identidad ni email — esos datos solo los edita un ADMIN vía
+        `PUT /usuarios/{id}`.
       operationId: actualizarPerfilPropio
       requestBody:
         required: true
@@ -58,6 +103,12 @@ paths:
     patch:
       tags: [perfil-propio]
       summary: Cambiar la propia contraseña
+      description: >
+        Autoservicio: no pide la contraseña anterior, se apoya en que el
+        request ya viene autenticado con un JWT válido. Útil para el caso
+        normal de "quiero cambiar mi clave", distinto del cambio forzado
+        que Keycloak exige en el primer login (ese lo maneja Keycloak
+        directamente, no este endpoint).
       operationId: cambiarPasswordPropio
       requestBody:
         required: true
@@ -73,27 +124,124 @@ paths:
         "401":
           $ref: "#/components/responses/NoAutenticado"
 
+  /cargos:
+    get:
+      tags: [gestion-cargos]
+      summary: Listar cargos administrativos
+      description: Catálogo completo, sin paginar (se espera una lista corta).
+      operationId: listarCargos
+      responses:
+        "200":
+          description: Catálogo de cargos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CargoResponse"
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+
+    post:
+      tags: [gestion-cargos]
+      summary: Crear un cargo administrativo
+      description: El `nombre` debe ser único en el catálogo (409 si ya existe).
+      operationId: crearCargo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CrearCargoRequest"
+            example:
+              nombre: "Tesorería"
+              descripcion: "Área de pagos y cobranzas"
+      responses:
+        "201":
+          description: Cargo creado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CargoResponse"
+        "409":
+          description: Ya existe un cargo con ese nombre
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+
+  /cargos/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Id del cargo (ver `GET /cargos`).
+        schema: { type: integer, format: int64 }
+    put:
+      tags: [gestion-cargos]
+      summary: Actualizar un cargo administrativo
+      operationId: actualizarCargo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActualizarCargoRequest"
+      responses:
+        "200":
+          description: Cargo actualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CargoResponse"
+        "404":
+          $ref: "#/components/responses/NoEncontrado"
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+
+    delete:
+      tags: [gestion-cargos]
+      summary: Eliminar un cargo administrativo
+      description: >
+        Falla con 409 si algún usuario ADMINISTRATIVO todavía tiene este
+        cargo asignado — hay que reasignarlos a otro cargo antes de poder
+        eliminar este.
+      operationId: eliminarCargo
+      responses:
+        "204":
+          description: Cargo eliminado
+        "404":
+          $ref: "#/components/responses/NoEncontrado"
+        "409":
+          description: El cargo está en uso, no se puede eliminar
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+
   /usuarios:
     get:
       tags: [gestion-usuarios]
       summary: Listar usuarios (solo admin, filtrado por sedes permitidas)
+      description: >
+        Un admin de sede solo ve usuarios de sus propias sedes permitidas;
+        un admin global (el que tiene `sedeId = null` en su propia
+        asignación) ve usuarios de todas las sedes.
       operationId: listarUsuarios
       parameters:
         - name: sedeId
           in: query
-          schema: { type: integer, format: int64 }
           description: >
-            Si se omite, se listan todas las sedes permitidas para el admin
-            autenticado (todas, si es admin global).
+            Filtra a una sede puntual. Si se omite, se listan todas las
+            sedes permitidas para el admin autenticado (todas, si es admin
+            global).
+          schema: { type: integer, format: int64 }
         - name: rol
           in: query
+          description: Filtra por rol principal.
           schema: { $ref: "#/components/schemas/Rol" }
         - name: estado
           in: query
           schema: { $ref: "#/components/schemas/EstadoUsuario" }
         - name: q
           in: query
-          description: Búsqueda por nombre o número de documento
+          description: Búsqueda por nombre o número de documento.
           schema: { type: string }
         - name: page
           in: query
@@ -114,6 +262,17 @@ paths:
     post:
       tags: [gestion-usuarios]
       summary: Crear un usuario nuevo (provisiona en Keycloak y en la BD local)
+      description: >
+        Crea el usuario en dos sistemas dentro de la misma operación:
+        Keycloak (username y password inicial = `numeroDocumento`, marcada
+        temporal para forzar el cambio en el primer login) y la base de
+        datos local. Si la escritura local falla después de haber creado en
+        Keycloak, la creación en Keycloak se revierte automáticamente — no
+        queda un usuario huérfano.
+
+
+        `perfilDocente`/`perfilEstudiante`/`perfilAdministrativo` — manda
+        solo el que corresponda al `rol` elegido; los otros se ignoran.
       operationId: crearUsuario
       requestBody:
         required: true
@@ -121,6 +280,17 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/CrearUsuarioRequest"
+            example:
+              tipoDocumento: "DNI"
+              numeroDocumento: "87654321"
+              nombres: "Carlos"
+              apellidoPaterno: "Ríos"
+              email: "carlos.rios@edu.pe"
+              rol: "DOCENTE"
+              sedeId: 1
+              perfilDocente:
+                gradoAcademico: "Magíster"
+                fechaIngreso: "2026-03-01"
       responses:
         "201":
           description: Usuario creado
@@ -160,6 +330,9 @@ paths:
     put:
       tags: [gestion-usuarios]
       summary: Actualizar datos administrativos de un usuario (admin)
+      description: >
+        No toca rol ni sede — para eso está `POST /usuarios/{id}/roles`.
+        Este endpoint es solo para corregir datos personales o de perfil.
       operationId: actualizarUsuario
       requestBody:
         required: true
@@ -188,6 +361,10 @@ paths:
     patch:
       tags: [gestion-usuarios]
       summary: Activar, suspender o inactivar un usuario (admin)
+      description: >
+        Cambia el estado administrativo del usuario — no lo elimina.
+        Un estado distinto de ACTIVO también deshabilita su cuenta en
+        Keycloak, así que no puede loguearse mientras tanto.
       operationId: cambiarEstadoUsuario
       requestBody:
         required: true
@@ -198,7 +375,9 @@ paths:
               required: [estado]
               properties:
                 estado: { $ref: "#/components/schemas/EstadoUsuario" }
-                motivo: { type: string }
+                motivo:
+                  type: string
+                  description: Opcional, para dejar registro de por qué se hizo el cambio.
       responses:
         "200":
           description: Estado actualizado
@@ -216,6 +395,15 @@ paths:
     post:
       tags: [gestion-usuarios]
       summary: Asignar rol y sede a un usuario
+      description: >
+        Agrega un rol adicional a un usuario que ya existe — por ejemplo,
+        convertir a un DOCENTE en también ADMINISTRATIVO. Si es la primera
+        vez que la persona tiene ese rol, hay que mandar el perfil
+        correspondiente (`perfilDocente`/`perfilEstudiante`/`perfilAdministrativo`)
+        en el mismo request para que se cree junto con la asignación. Si ya
+        tenía ese perfil de antes (ej. está agregando el mismo rol en otra
+        sede), el perfil enviado se ignora — no se duplica ni se
+        sobrescribe.
       operationId: asignarRolSede
       requestBody:
         required: true
@@ -223,6 +411,12 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/AsignarRolRequest"
+            example:
+              rol: "ADMINISTRATIVO"
+              sedeId: 1
+              perfilAdministrativo:
+                cargoId: 1
+                condicion: "CONTRATADO"
       responses:
         "201":
           description: Rol asignado
@@ -251,28 +445,54 @@ components:
   schemas:
     Rol:
       type: string
-      enum: [ADMIN, DOCENTE, ESTUDIANTE]
+      description: >
+        Los cuatro roles del sistema. No son mutuamente excluyentes: un
+        mismo usuario puede tener más de uno (ver `/usuarios/{id}/roles`).
+      enum: [ADMIN, DOCENTE, ESTUDIANTE, ADMINISTRATIVO]
 
     EstadoUsuario:
       type: string
+      description: Estado administrativo del usuario dentro del sistema.
       enum: [ACTIVO, INACTIVO, SUSPENDIDO]
+
+    Sexo:
+      type: string
+      enum: [M, F]
+
+    TipoRegistroEstudiante:
+      type: string
+      description: >
+        Cómo ingresó el estudiante a la institución. Se define una vez, en
+        el registro inicial — no cambia después.
+      enum: [INSCRIPCION, CONVALIDACION, TRASLADO, OTRO]
 
     UsuarioBase:
       type: object
+      description: >
+        Campos comunes a cualquier usuario, sin importar su rol. Es la base
+        tanto de la respuesta de "mi perfil" como de la vista admin.
       properties:
         id: { type: integer, format: int64 }
-        nombres: { type: string }
-        apellidoPaterno: { type: string }
-        apellidoMaterno: { type: string }
-        email: { type: string, format: email }
-        telefono: { type: string }
+        nombres: { type: string, example: "Ana" }
+        apellidoPaterno: { type: string, example: "Torres" }
+        apellidoMaterno: { type: string, example: "Ríos" }
+        email: { type: string, format: email, example: "ana.torres@edu.pe" }
+        telefono: { type: string, example: "999888777" }
+        sexo: { $ref: "#/components/schemas/Sexo" }
+        fechaNacimiento: { type: string, format: date, example: "1995-04-12" }
         estado: { $ref: "#/components/schemas/EstadoUsuario" }
         rol: { $ref: "#/components/schemas/Rol" }
         sedes:
           type: array
+          description: >
+            Sedes donde este usuario tiene acceso vigente. Ausente o vacío
+            si es un admin global (acceso a todas las sedes).
           items: { type: integer, format: int64 }
 
     UsuarioPerfilResponse:
+      description: >
+        UsuarioBase más los perfiles de rol que apliquen. Puede traer más
+        de uno poblado a la vez (ver nota sobre roles múltiples arriba).
       allOf:
         - $ref: "#/components/schemas/UsuarioBase"
         - type: object
@@ -281,27 +501,84 @@ components:
               $ref: "#/components/schemas/PerfilDocente"
             perfilEstudiante:
               $ref: "#/components/schemas/PerfilEstudiante"
+            perfilAdministrativo:
+              $ref: "#/components/schemas/PerfilAdministrativo"
+
+    CargoResponse:
+      type: object
+      description: Un ítem del catálogo de cargos administrativos.
+      properties:
+        id: { type: integer, format: int64 }
+        nombre: { type: string, example: "Tesorería" }
+        descripcion: { type: string, example: "Área de pagos y cobranzas" }
+
+    CrearCargoRequest:
+      type: object
+      required: [nombre]
+      properties:
+        nombre: { type: string, example: "Tesorería" }
+        descripcion: { type: string }
+
+    ActualizarCargoRequest:
+      type: object
+      properties:
+        nombre: { type: string }
+        descripcion: { type: string }
+
+    PerfilAdministrativo:
+      type: object
+      description: Datos específicos del rol ADMINISTRATIVO.
+      properties:
+        cargoId:
+          type: integer
+          format: int64
+          description: Id de un cargo existente en el catálogo (ver `GET /cargos`).
+        cargoNombre:
+          type: string
+          readOnly: true
+          description: Solo lectura — se completa automáticamente a partir de cargoId.
+        areaAdministrativa: { type: string, example: "Secretaría General" }
+        condicion:
+          type: string
+          description: Texto libre. Valores típicos usados hoy — "CONTRATADO", "NOMBRADO".
+          example: "CONTRATADO"
 
     PerfilDocente:
       type: object
+      description: Datos específicos del rol DOCENTE.
       properties:
-        gradoAcademico: { type: string }
-        especialidad: { type: string }
-        tipoContrato: { type: string }
+        gradoAcademico: { type: string, example: "Magíster" }
+        especialidad: { type: string, example: "Matemática" }
+        tipoContrato:
+          type: string
+          description: Texto libre. Valores típicos usados hoy — "CONTRATADO", "NOMBRADO".
         fechaIngreso: { type: string, format: date }
+        direccion: { type: string }
+        cargoAdministrativo:
+          type: string
+          description: >
+            Cargo institucional adicional (ej. "Jefe de Departamento"), si aplica.
+            NO tiene relación con el rol de acceso ADMIN del sistema — son conceptos
+            distintos: este es un título del docente, no un nivel de permisos.
 
     PerfilEstudiante:
       type: object
+      description: Datos específicos del rol ESTUDIANTE.
       properties:
-        codigoEstudiante: { type: string }
+        codigoEstudiante: { type: string, example: "2026001" }
         programaId: { type: integer, format: int64 }
         contactoEmergenciaNombre: { type: string }
         contactoEmergenciaTelefono: { type: string }
         direccion: { type: string }
+        periodoIngreso:
+          type: string
+          description: Periodo/cohorte de ingreso (ej. "2026-I"), fijo desde la matrícula inicial.
+          example: "2026-I"
+        tipoRegistro: { $ref: "#/components/schemas/TipoRegistroEstudiante" }
 
     ActualizarPerfilPropioRequest:
       type: object
-      description: Solo campos que el propio usuario puede editar (no rol ni sede)
+      description: Solo campos que el propio usuario puede editar (no rol ni sede).
       properties:
         telefono: { type: string }
         direccion: { type: string }
@@ -317,11 +594,13 @@ components:
           minLength: 8
 
     UsuarioAdminListItem:
+      description: Ítem de listado — mismos campos que UsuarioBase, sin los perfiles de rol.
       allOf:
         - $ref: "#/components/schemas/UsuarioBase"
 
     UsuarioAdminListPage:
       type: object
+      description: Página de resultados de `GET /usuarios`.
       properties:
         contenido:
           type: array
@@ -331,38 +610,58 @@ components:
         tamanioPagina: { type: integer }
 
     UsuarioAdminDetalle:
+      description: Igual que UsuarioPerfilResponse — vista de detalle para un ADMIN viendo a otro usuario.
       allOf:
         - $ref: "#/components/schemas/UsuarioPerfilResponse"
 
     CrearUsuarioRequest:
       type: object
+      description: >
+        `perfilDocente`/`perfilEstudiante`/`perfilAdministrativo` son
+        mutuamente excluyentes en la práctica: manda solo el que
+        corresponda al `rol` elegido.
       required: [tipoDocumento, numeroDocumento, nombres, apellidoPaterno, email, rol, sedeId]
       properties:
-        tipoDocumento: { type: string }
-        numeroDocumento: { type: string }
+        tipoDocumento: { type: string, example: "DNI" }
+        numeroDocumento:
+          type: string
+          description: También se usa como username y password inicial en Keycloak.
+          example: "87654321"
         nombres: { type: string }
         apellidoPaterno: { type: string }
         apellidoMaterno: { type: string }
         telefono: { type: string }
         email: { type: string, format: email }
+        sexo: { $ref: "#/components/schemas/Sexo" }
+        fechaNacimiento: { type: string, format: date }
         rol: { $ref: "#/components/schemas/Rol" }
-        sedeId: { type: integer, format: int64 }
+        sedeId:
+          type: integer
+          format: int64
+          description: Sede a la que queda asignado con este rol.
         perfilDocente:
           $ref: "#/components/schemas/PerfilDocente"
         perfilEstudiante:
           $ref: "#/components/schemas/PerfilEstudiante"
+        perfilAdministrativo:
+          $ref: "#/components/schemas/PerfilAdministrativo"
 
     ActualizarUsuarioRequest:
       type: object
+      description: Todos los campos son opcionales — solo se actualiza lo que se envía.
       properties:
         nombres: { type: string }
         apellidoPaterno: { type: string }
         apellidoMaterno: { type: string }
         telefono: { type: string }
+        sexo: { $ref: "#/components/schemas/Sexo" }
+        fechaNacimiento: { type: string, format: date }
         perfilDocente:
           $ref: "#/components/schemas/PerfilDocente"
         perfilEstudiante:
           $ref: "#/components/schemas/PerfilEstudiante"
+        perfilAdministrativo:
+          $ref: "#/components/schemas/PerfilAdministrativo"
 
     AsignarRolRequest:
       type: object
@@ -374,5 +673,14 @@ components:
           format: int64
           nullable: true
           description: null = acceso a todas las sedes (solo válido para rol ADMIN)
-        fechaInicio: { type: string, format: date }
+        fechaInicio:
+          type: string
+          format: date
+          description: Si se omite, se usa la fecha actual.
         fechaFin: { type: string, format: date, nullable: true }
+        perfilDocente:
+          $ref: "#/components/schemas/PerfilDocente"
+        perfilEstudiante:
+          $ref: "#/components/schemas/PerfilEstudiante"
+        perfilAdministrativo:
+          $ref: "#/components/schemas/PerfilAdministrativo"

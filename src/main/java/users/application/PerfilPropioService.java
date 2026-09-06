@@ -4,12 +4,13 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import users.api.generated.model.ActualizarPerfilPropioRequest;
+import users.api.generated.model.PerfilAdministrativo;
 import users.api.generated.model.PerfilDocente;
 import users.api.generated.model.PerfilEstudiante;
 import users.api.generated.model.UsuarioPerfilResponse;
 import users.domain.exception.UsuarioNoEncontradoException;
-import users.domain.model.Rol;
 import users.domain.model.Usuario;
+import users.domain.repository.AdministrativoPerfilRepository;
 import users.domain.repository.DocentePerfilRepository;
 import users.domain.repository.EstudiantePerfilRepository;
 import users.domain.repository.UsuarioRepository;
@@ -22,8 +23,19 @@ public class PerfilPropioService {
   @Inject UsuarioRepository usuarioRepository;
   @Inject DocentePerfilRepository docentePerfilRepository;
   @Inject EstudiantePerfilRepository estudiantePerfilRepository;
+  @Inject AdministrativoPerfilRepository administrativoPerfilRepository;
   @Inject KeycloakProvisioningService keycloakProvisioningService;
 
+  /**
+   * Se consultan los tres tipos de perfil SIEMPRE, sin filtrar por
+   * contexto.rol() — ese campo solo guarda el primer rol que se encontró
+   * en usuario_sede_rol (es "informativo", ver ContextoAccesoProvider), y
+   * un usuario puede legítimamente tener más de un rol (ej. DOCENTE +
+   * ADMINISTRATIVO). Filtrar por ese único valor ocultaría el segundo
+   * perfil aunque exista en la BD. Cada Optional simplemente viene vacío
+   * si esa persona no tiene ese perfil, sin necesidad de preguntar antes
+   * "qué roles tiene".
+   */
   public UsuarioPerfilResponse obtenerPropio(ContextoAcceso contexto) {
     Usuario usuario = usuarioRepository.findByIdOptional(contexto.usuarioId())
             .orElseThrow(() -> new UsuarioNoEncontradoException(contexto.usuarioId()));
@@ -35,32 +47,42 @@ public class PerfilPropioService {
     response.setApellidoMaterno(usuario.apellidoMaterno);
     response.setEmail(usuario.email);
     response.setTelefono(usuario.telefono);
+    response.setSexo(usuario.sexo != null
+            ? users.api.generated.model.Sexo.valueOf(usuario.sexo) : null);
+    response.setFechaNacimiento(usuario.fechaNacimiento);
     response.setEstado(users.api.generated.model.EstadoUsuario.valueOf(usuario.estado.name()));
     response.setRol(users.api.generated.model.Rol.valueOf(contexto.rol().name()));
     response.setSedes(contexto.sedesPermitidas());
 
-    if (contexto.rol() == Rol.DOCENTE) {
-      docentePerfilRepository.buscarPorUsuarioId(usuario.id).ifPresent(dp -> {
-        PerfilDocente dto = new PerfilDocente();
-        dto.setGradoAcademico(dp.gradoAcademico);
-        dto.setEspecialidad(dp.especialidad);
-        dto.setTipoContrato(dp.tipoContrato);
-        dto.setFechaIngreso(dp.fechaIngreso);
-        response.setPerfilDocente(dto);
-      });
-    }
+    docentePerfilRepository.buscarPorUsuarioId(usuario.id).ifPresent(dp -> {
+      PerfilDocente dto = new PerfilDocente();
+      dto.setGradoAcademico(dp.gradoAcademico);
+      dto.setEspecialidad(dp.especialidad);
+      dto.setTipoContrato(dp.tipoContrato);
+      dto.setFechaIngreso(dp.fechaIngreso);
+      dto.setDireccion(dp.direccion);
+      dto.setCargoAdministrativo(dp.cargoAdministrativo);
+      response.setPerfilDocente(dto);
+    });
 
-    if (contexto.rol() == Rol.ESTUDIANTE) {
-      estudiantePerfilRepository.buscarPorUsuarioId(usuario.id).ifPresent(ep -> {
-        PerfilEstudiante dto = new PerfilEstudiante();
-        dto.setCodigoEstudiante(ep.codigoEstudiante);
-        dto.setProgramaId(ep.programaId);
-        dto.setContactoEmergenciaNombre(ep.contactoEmergenciaNombre);
-        dto.setContactoEmergenciaTelefono(ep.contactoEmergenciaTelefono);
-        dto.setDireccion(ep.direccion);
-        response.setPerfilEstudiante(dto);
-      });
-    }
+    estudiantePerfilRepository.buscarPorUsuarioId(usuario.id).ifPresent(ep -> {
+      PerfilEstudiante dto = new PerfilEstudiante();
+      dto.setCodigoEstudiante(ep.codigoEstudiante);
+      dto.setProgramaId(ep.programaId);
+      dto.setContactoEmergenciaNombre(ep.contactoEmergenciaNombre);
+      dto.setContactoEmergenciaTelefono(ep.contactoEmergenciaTelefono);
+      dto.setDireccion(ep.direccion);
+      response.setPerfilEstudiante(dto);
+    });
+
+    administrativoPerfilRepository.buscarPorUsuarioId(usuario.id).ifPresent(ap -> {
+      PerfilAdministrativo dto = new PerfilAdministrativo();
+      dto.setCargoId(ap.cargo.id);
+      dto.setCargoNombre(ap.cargo.nombre);
+      dto.setAreaAdministrativa(ap.areaAdministrativa);
+      dto.setCondicion(ap.condicion);
+      response.setPerfilAdministrativo(dto);
+    });
 
     return response;
   }
@@ -68,6 +90,9 @@ public class PerfilPropioService {
   /**
    * Solo campos editables por el propio usuario (ver ActualizarPerfilPropioRequest
    * en el contrato): NUNCA rol, sede o documento de identidad desde este método.
+   * Igual que en obtenerPropio, no se filtra por contexto.rol() — si la
+   * persona tiene EstudiantePerfil y/o DocentePerfil (dirección vive en
+   * ambos), se actualiza el que exista, no solo el del rol "informativo".
    */
   @Transactional
   public void actualizarPropio(ContextoAcceso contexto, ActualizarPerfilPropioRequest request) {
@@ -78,19 +103,23 @@ public class PerfilPropioService {
       usuario.telefono = request.getTelefono();
     }
 
-    if (contexto.rol() == Rol.ESTUDIANTE) {
-      estudiantePerfilRepository.buscarPorUsuarioId(usuario.id).ifPresent(perfil -> {
-        if (request.getDireccion() != null) {
-          perfil.direccion = request.getDireccion();
-        }
-        if (request.getContactoEmergenciaNombre() != null) {
-          perfil.contactoEmergenciaNombre = request.getContactoEmergenciaNombre();
-        }
-        if (request.getContactoEmergenciaTelefono() != null) {
-          perfil.contactoEmergenciaTelefono = request.getContactoEmergenciaTelefono();
-        }
-      });
-    }
+    estudiantePerfilRepository.buscarPorUsuarioId(usuario.id).ifPresent(perfil -> {
+      if (request.getDireccion() != null) {
+        perfil.direccion = request.getDireccion();
+      }
+      if (request.getContactoEmergenciaNombre() != null) {
+        perfil.contactoEmergenciaNombre = request.getContactoEmergenciaNombre();
+      }
+      if (request.getContactoEmergenciaTelefono() != null) {
+        perfil.contactoEmergenciaTelefono = request.getContactoEmergenciaTelefono();
+      }
+    });
+
+    docentePerfilRepository.buscarPorUsuarioId(usuario.id).ifPresent(perfil -> {
+      if (request.getDireccion() != null) {
+        perfil.direccion = request.getDireccion();
+      }
+    });
   }
 
   /**

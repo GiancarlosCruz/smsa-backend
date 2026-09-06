@@ -16,6 +16,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import users.domain.model.EstadoUsuario;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -68,6 +69,12 @@ public class Usuario extends PanacheEntityBase {
 
   @Column(name = "telefono", length = 20)
   public String telefono;
+
+  @Column(name = "sexo", length = 1)
+  public String sexo;
+
+  @Column(name = "fecha_nacimiento", nullable = false, updatable = false)
+  public LocalDate fechaNacimiento;
 
   @NotNull
   @Enumerated(EnumType.STRING)

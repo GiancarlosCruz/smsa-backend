@@ -217,6 +217,30 @@
                                 <dateLibrary>java8</dateLibrary>
                                 <useBeanValidation>true</useBeanValidation>
                                 <useJakartaEe>true</useJakartaEe>
+                                <generateApplicationPath>false</generateApplicationPath>
+                            </configOptions>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>generate-menu-api</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>generate</goal></goals>
+                        <configuration>
+                            <inputSpec>${project.basedir}/src/main/openapi/menu-openapi.yaml</inputSpec>
+                            <generatorName>jaxrs-spec</generatorName>
+                            <output>${project.build.directory}/generated-sources/openapi</output>
+                            <apiPackage>menu.api.generated</apiPackage>
+                            <modelPackage>menu.api.generated.model</modelPackage>
+                            <invokerPackage>menu.api.generated.invoker</invokerPackage>
+                            <configOptions>
+                                <interfaceOnly>true</interfaceOnly>
+                                <useTags>true</useTags>
+                                <useSwaggerAnnotations>false</useSwaggerAnnotations>
+                                <generatePom>false</generatePom>
+                                <dateLibrary>java8</dateLibrary>
+                                <useBeanValidation>true</useBeanValidation>
+                                <useJakartaEe>true</useJakartaEe>
+                                <generateApplicationPath>false</generateApplicationPath>
                             </configOptions>
                         </configuration>
                     </execution>
@@ -264,6 +288,30 @@
                         <goals>
                             <goal>prepare-agent</goal>
                         </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>remove-openapi-application-classes</id>
+                        <phase>process-sources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <delete>
+                                    <fileset dir="${project.build.directory}/generated-sources/openapi">
+                                        <include name="**/RestApplication.java"/>
+                                        <include name="**/RestResourceRoot.java"/>
+                                    </fileset>
+                                </delete>
+                            </target>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

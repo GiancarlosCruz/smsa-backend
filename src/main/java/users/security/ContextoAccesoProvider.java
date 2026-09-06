@@ -8,6 +8,7 @@ import users.domain.exception.UsuarioNoEncontradoException;
 import users.domain.model.Rol;
 import users.domain.model.Usuario;
 import users.domain.model.UsuarioSedeRol;
+import users.domain.repository.AdministrativoPerfilRepository;
 import users.domain.repository.UsuarioRepository;
 import users.domain.repository.UsuarioSedeRolRepository;
 
@@ -30,6 +31,9 @@ public class ContextoAccesoProvider {
 
   @Inject
   UsuarioSedeRolRepository usuarioSedeRolRepository;
+
+  @Inject
+  AdministrativoPerfilRepository administrativoPerfilRepository;
 
   @Produces
   @RequestScoped
@@ -55,6 +59,10 @@ public class ContextoAccesoProvider {
             ? null
             : asignacionesVigentes.stream().map(usr -> usr.sedeId).toList();
 
-    return new ContextoAcceso(usuario.id, rol, sedesPermitidas, adminGlobal);
+    Long cargoId = administrativoPerfilRepository.buscarPorUsuarioId(usuario.id)
+            .map(perfil -> perfil.cargo.id)
+            .orElse(null);
+
+    return new ContextoAcceso(usuario.id, rol, sedesPermitidas, adminGlobal, cargoId);
   }
 }

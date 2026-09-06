@@ -1,0 +1,326 @@
+openapi: 3.0.3
+info:
+  title: Módulo Menú
+  version: "1.0.0"
+  description: >
+    Resuelve las opciones de navegación visibles para el usuario autenticado,
+    según su cargo (aplica solo a rol ADMINISTRATIVO — los demás roles usan
+    menú fijo del lado del frontend, no pasan por este módulo).
+
+
+    **Conceptos clave para entender este contrato:**
+
+
+    - `cargoId` se resuelve del lado del módulo `usuarios` y llega ya
+      calculado dentro del JWT-derived ContextoAcceso — este módulo no
+      consulta tablas de usuarios directamente, solo lee ese valor.
+
+    - Las opciones pueden tener jerarquía (padre/hijo) vía `opcionPadreId`.
+      Para crear un hijo, primero crea el padre y usa el `id` que te
+      devuelve — ver los dos ejemplos en `CrearOpcionMenuRequest`.
+
+    - Hay dos "vistas" del mismo catálogo: `GET /menu/me` arma un ÁRBOL
+      (hijos anidados dentro de sus padres, solo con lo que el cargo tiene
+      asignado), mientras que los endpoints `menu-admin` devuelven listas
+      PLANAS (para gestionar el catálogo completo, sin filtrar por cargo).
+
+    - La asignación cargo↔opciones es de **reemplazo completo**, no
+      incremental: `PUT /menu/cargos/{cargoId}/opciones` recibe la lista
+      COMPLETA de ids que ese cargo debe ver, no solo los que quieres
+      agregar.
+
+    - Un hijo solo aparece anidado en `GET /menu/me` si el cargo tiene
+      asignados TANTO el padre COMO el hijo. Si asignas el hijo sin el
+      padre, no desaparece — sale como ítem de nivel raíz en vez de perderse
+      silenciosamente.
+
+servers:
+  - url: https://api.tuinstitucion.edu.pe/v1
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: menu
+    description: >
+      Lo que ve el propio usuario autenticado: su menú ya armado como árbol,
+      listo para pintar en el frontend.
+  - name: menu-admin
+    description: >
+      Gestión del catálogo de opciones y de qué cargo ve cada una. Requiere
+      rol ADMIN.
+
+paths:
+  /menu/me:
+    get:
+      tags: [menu]
+      summary: Opciones de menú visibles para el usuario autenticado, según su cargo
+      description: >
+        Devuelve un árbol (no una lista plana): las opciones raíz vienen con
+        su lista de `hijos` ya anidada. Si el usuario no es ADMINISTRATIVO o
+        no tiene cargo asignado, devuelve una lista vacía.
+      operationId: obtenerMenuPropio
+      responses:
+        "200":
+          description: Árbol de opciones de menú (vacío si el usuario no tiene cargo asignado)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpcionMenuResponse"
+        "401":
+          $ref: "#/components/responses/NoAutenticado"
+
+  /menu/opciones:
+    get:
+      tags: [menu-admin]
+      summary: Listar todo el catálogo de opciones de menú
+      description: >
+        Lista PLANA (no árbol) de todas las opciones que existen, tengan o
+        no cargo asignado. Cada ítem trae `opcionPadreId` para que el
+        cliente arme la jerarquía si la necesita — el campo `hijos` no se
+        usa en este endpoint (siempre viene vacío/ausente acá).
+      operationId: listarOpciones
+      responses:
+        "200":
+          description: Catálogo completo, lista plana
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpcionMenuResponse"
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+
+    post:
+      tags: [menu-admin]
+      summary: Crear una opción de menú
+      description: El `codigo` debe ser único en el catálogo (409 si ya existe).
+      operationId: crearOpcion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CrearOpcionMenuRequest"
+            examples:
+              opcion_raiz:
+                summary: Opción sin padre (nivel raíz)
+                value:
+                  codigo: "GESTION_USUARIOS"
+                  etiqueta: "Gestión Usuarios"
+                  orden: 1
+              opcion_hija:
+                summary: Opción anidada — requiere el id del padre ya creado
+                value:
+                  codigo: "REGISTRAR_USUARIO"
+                  etiqueta: "Registrar usuario"
+                  orden: 1
+                  opcionPadreId: 5
+      responses:
+        "201":
+          description: Opción creada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpcionMenuResponse"
+        "409":
+          description: Ya existe una opción con ese código
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+
+  /menu/opciones/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Id de la opción (ver `GET /menu/opciones`).
+        schema: { type: integer, format: int64 }
+    put:
+      tags: [menu-admin]
+      summary: Actualizar una opción de menú
+      description: >
+        Todos los campos son opcionales — solo se actualiza lo que se envía.
+        `codigo` no es editable acá (se trata como identificador fijo una
+        vez creada la opción). Se puede reasignar `opcionPadreId` para mover
+        una opción de lugar en la jerarquía.
+      operationId: actualizarOpcion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActualizarOpcionMenuRequest"
+      responses:
+        "200":
+          description: Opción actualizada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpcionMenuResponse"
+        "404":
+          $ref: "#/components/responses/NoEncontrado"
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+
+    delete:
+      tags: [menu-admin]
+      summary: Eliminar una opción de menú
+      description: >
+        Si existen opciones hijas que la tienen como `opcionPadreId`, la
+        eliminación falla por restricción de integridad referencial —
+        primero hay que reasignar o eliminar las hijas.
+      operationId: eliminarOpcion
+      responses:
+        "204":
+          description: Opción eliminada
+        "404":
+          $ref: "#/components/responses/NoEncontrado"
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+
+  /menu/cargos/{cargoId}/opciones:
+    parameters:
+      - name: cargoId
+        in: path
+        required: true
+        description: Id del cargo (catálogo administrado en el módulo usuarios, `GET /cargos`).
+        schema: { type: integer, format: int64 }
+    get:
+      tags: [menu-admin]
+      summary: Ver las opciones de menú asignadas a un cargo
+      description: >
+        Lista PLANA de lo que ese cargo tiene asignado hoy — no arma árbol
+        (para eso está `GET /menu/me`, del lado del propio usuario). Útil
+        como estado inicial antes de un `PUT` a este mismo path.
+      operationId: obtenerOpcionesDeCargo
+      responses:
+        "200":
+          description: Opciones asignadas, lista plana
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpcionMenuResponse"
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+
+    put:
+      tags: [menu-admin]
+      summary: Reemplazar el conjunto completo de opciones asignadas a un cargo
+      description: >
+        REEMPLAZO COMPLETO, no incremental: manda la lista TOTAL de ids que
+        el cargo debe tener asignados. Cualquier id que no esté en la lista
+        se desasigna, aunque lo tuviera antes. Para agregar una sola opción
+        nueva, primero consulta `GET` en este mismo path, agrega el id
+        nuevo a la lista, y recién ahí manda el `PUT` con todos.
+      operationId: asignarOpcionesACargo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AsignarOpcionesCargoRequest"
+            example:
+              opcionesIds: [5, 6, 7]
+      responses:
+        "204":
+          description: Asignación actualizada
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    NoAutenticado:
+      description: Token ausente o inválido
+    SinPermiso:
+      description: El usuario autenticado no tiene rol suficiente
+    NoEncontrado:
+      description: Recurso no encontrado
+
+  schemas:
+    OpcionMenuResponse:
+      type: object
+      description: >
+        Mismo schema reutilizado en dos contextos distintos: en
+        `GET /menu/me` viene con `hijos` poblado formando un árbol; en los
+        endpoints `menu-admin` (`listarOpciones`, `obtenerOpcionesDeCargo`)
+        viene como lista plana, con `hijos` siempre vacío/ausente —
+        `opcionPadreId` es el dato que indica la jerarquía ahí.
+      properties:
+        id: { type: integer, format: int64 }
+        codigo:
+          type: string
+          description: Identificador estable, no editable después de creado.
+          example: "GESTION_USUARIOS"
+        etiqueta:
+          type: string
+          description: Texto que se muestra en el menú.
+          example: "Gestión Usuarios"
+        icono: { type: string, example: "users" }
+        ruta: { type: string, example: "/usuarios" }
+        opcionPadreId:
+          type: integer
+          format: int64
+          nullable: true
+          description: Id del padre. null si es una opción de nivel raíz.
+        hijos:
+          type: array
+          description: Solo poblado en la respuesta de `GET /menu/me`.
+          items:
+            $ref: "#/components/schemas/OpcionMenuResponse"
+
+    CrearOpcionMenuRequest:
+      type: object
+      required: [codigo, etiqueta]
+      properties:
+        codigo:
+          type: string
+          description: Único en el catálogo. Convención usada hoy — MAYUSCULA_CON_GUION_BAJO.
+          example: "GESTION_USUARIOS"
+        etiqueta: { type: string, example: "Gestión Usuarios" }
+        icono: { type: string, example: "users" }
+        ruta: { type: string, example: "/usuarios" }
+        orden:
+          type: integer
+          default: 0
+          description: Orden dentro de su mismo nivel (entre hermanos).
+        opcionPadreId:
+          type: integer
+          format: int64
+          nullable: true
+          description: Si se omite, la opción queda como raíz (sin padre).
+
+    ActualizarOpcionMenuRequest:
+      type: object
+      description: Todos los campos son opcionales — solo se actualiza lo que se envía.
+      properties:
+        etiqueta: { type: string }
+        icono: { type: string }
+        ruta: { type: string }
+        orden: { type: integer }
+        opcionPadreId:
+          type: integer
+          format: int64
+          nullable: true
+          description: Reasigna el padre de esta opción (null la vuelve raíz).
+
+    AsignarOpcionesCargoRequest:
+      type: object
+      required: [opcionesIds]
+      properties:
+        opcionesIds:
+          type: array
+          description: >
+            Lista COMPLETA de ids que el cargo debe tener asignados —
+            reemplaza cualquier asignación previa, no se suma a ella.
+          items: { type: integer, format: int64 }

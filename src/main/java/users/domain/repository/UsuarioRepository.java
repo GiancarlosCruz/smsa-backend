@@ -28,6 +28,10 @@ public class UsuarioRepository implements PanacheRepository<Usuario> {
     return count("tipoDocumento = ?1 and numeroDocumento = ?2", tipoDocumento, numeroDocumento) > 0;
   }
 
+  public boolean existeEmail(String email) {
+    return count("email", email) > 0;
+  }
+
   /**
    * Listado para gestión admin, ya restringido a las sedes permitidas del admin autenticado.
    *

@@ -42,4 +42,10 @@ public class DocentePerfil extends PanacheEntityBase {
   @NotNull
   @Column(name = "fecha_ingreso", nullable = false)
   public LocalDate fechaIngreso;
+
+  @Column(name = "direccion", length = 250)
+  public String direccion;
+
+  @Column(name = "cargo_administrativo", length = 100)
+  public String cargoAdministrativo;
 }

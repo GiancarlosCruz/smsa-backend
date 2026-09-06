@@ -8,13 +8,17 @@ import users.api.generated.model.ActualizarUsuarioRequest;
 import users.api.generated.model.CrearUsuarioRequest;
 import users.domain.exception.AccesoSedeNoPermitidoException;
 import users.domain.exception.DocumentoDuplicadoException;
+import users.domain.exception.EmailDuplicadoException;
 import users.domain.exception.UsuarioNoEncontradoException;
+import users.domain.model.AdministrativoPerfil;
 import users.domain.model.DocentePerfil;
 import users.domain.model.EstadoUsuario;
 import users.domain.model.EstudiantePerfil;
 import users.domain.model.Rol;
 import users.domain.model.Usuario;
 import users.domain.model.UsuarioSedeRol;
+import users.domain.repository.AdministrativoPerfilRepository;
+import users.domain.repository.CargoRepository;
 import users.domain.repository.DocentePerfilRepository;
 import users.domain.repository.EstudiantePerfilRepository;
 import users.domain.repository.UsuarioRepository;
@@ -34,6 +38,8 @@ public class UsuarioService {
   @Inject UsuarioSedeRolRepository usuarioSedeRolRepository;
   @Inject DocentePerfilRepository docentePerfilRepository;
   @Inject EstudiantePerfilRepository estudiantePerfilRepository;
+  @Inject AdministrativoPerfilRepository administrativoPerfilRepository;
+  @Inject CargoRepository cargoRepository;
   @Inject KeycloakProvisioningService keycloakProvisioningService;
 
   /**
@@ -44,6 +50,10 @@ public class UsuarioService {
   public Usuario crear(CrearUsuarioRequest request, ContextoAcceso contexto) {
     if (usuarioRepository.existeDocumento(request.getTipoDocumento(), request.getNumeroDocumento())) {
       throw new DocumentoDuplicadoException(request.getTipoDocumento(), request.getNumeroDocumento());
+    }
+
+    if(usuarioRepository.existeEmail(request.getEmail())) {
+      throw new EmailDuplicadoException(request.getEmail());
     }
 
     Rol rol = Rol.valueOf(request.getRol().name());
@@ -75,6 +85,10 @@ public class UsuarioService {
     usuario.apellidoMaterno = request.getApellidoMaterno();
     usuario.email = request.getEmail();
     usuario.telefono = request.getTelefono();
+    usuario.sexo = request.getSexo() != null
+            ? users.domain.model.Sexo.valueOf(request.getSexo().name()).name()
+            : null;
+    usuario.fechaNacimiento = request.getFechaNacimiento();
     usuario.estado = EstadoUsuario.ACTIVO;
     usuarioRepository.persist(usuario);
 
@@ -110,6 +124,17 @@ public class UsuarioService {
       estudiantePerfilRepository.persist(perfil);
     }
 
+    if (rol == Rol.ADMINISTRATIVO && request.getPerfilAdministrativo() != null) {
+      var dto = request.getPerfilAdministrativo();
+      AdministrativoPerfil perfil = new AdministrativoPerfil();
+      perfil.usuario = usuario;
+      perfil.cargo = cargoRepository.findByIdOptional(dto.getCargoId())
+              .orElseThrow(() -> new IllegalArgumentException("cargoId inexistente: " + dto.getCargoId()));
+      perfil.areaAdministrativa = dto.getAreaAdministrativa();
+      perfil.condicion = dto.getCondicion();
+      administrativoPerfilRepository.persist(perfil);
+    }
+
     return usuario;
   }
 
@@ -126,8 +151,6 @@ public class UsuarioService {
 
     keycloakProvisioningService.actualizarDatosBasicos(
             usuario.keycloakId, usuario.nombres, usuario.apellidoPaterno, usuario.email);
-
-    /*Si actualiza pero por el momento del mismo usuario del keyloack, esta prueba no abria la consola para validar del porque de los demas no*/
 
     return usuario;
   }

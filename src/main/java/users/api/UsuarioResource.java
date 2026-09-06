@@ -17,20 +17,20 @@ public class UsuarioResource implements PerfilPropioApi {
   @Inject ContextoAcceso contextoAcceso;
 
   @Override
-  @RolesAllowed({"ADMIN", "DOCENTE", "ESTUDIANTE"})
+  @RolesAllowed({"ADMIN", "DOCENTE", "ESTUDIANTE", "ADMINISTRATIVO"})
   public UsuarioPerfilResponse obtenerPerfilPropio() {
     return perfilPropioService.obtenerPropio(contextoAcceso);
   }
 
   @Override
-  @RolesAllowed({"ADMIN", "DOCENTE", "ESTUDIANTE"})
+  @RolesAllowed({"ADMIN", "DOCENTE", "ESTUDIANTE", "ADMINISTRATIVO"})
   public UsuarioPerfilResponse actualizarPerfilPropio(ActualizarPerfilPropioRequest request) {
     perfilPropioService.actualizarPropio(contextoAcceso, request);
     return perfilPropioService.obtenerPropio(contextoAcceso);
   }
 
   @Override
-  @RolesAllowed({"ADMIN", "DOCENTE", "ESTUDIANTE"})
+  @RolesAllowed({"ADMIN", "DOCENTE", "ESTUDIANTE", "ADMINISTRATIVO"})
   public void cambiarPasswordPropio(CambiarPasswordRequest request) {
     perfilPropioService.cambiarPasswordPropio(contextoAcceso, request.getPasswordNueva());
   }
