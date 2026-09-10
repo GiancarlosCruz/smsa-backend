@@ -2,6 +2,8 @@ package users.infrastructure.keycloak;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.ForbiddenException;
+import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
@@ -22,20 +24,28 @@ import java.util.UUID;
  * un sistema externo, igual que cualquier otro cliente HTTP a un tercero:
  * UsuarioService no debe saber cómo se crea un usuario en Keycloak, solo que
  * existe la operación de provisión.
+ * Los roles (ADMIN, DOCENTE, ESTUDIANTE, ADMINISTRATIVO) están modelados
+ * como CLIENT ROLES del client `targetClientId`, no como realm roles —
+ * decisión ya tomada y validada en Keycloak; quarkus.oidc.roles.role-claim-path
+ * debe apuntar a resource_access.<targetClientId>.roles, no a realm_access/roles.
  */
 @ApplicationScoped
 public class KeycloakProvisioningService {
 
   private static final Logger LOG = Logger.getLogger(KeycloakProvisioningService.class);
 
-  @Inject
-  Keycloak keycloakAdminClient;
+  private final Keycloak keycloakAdminClient;
 
   @ConfigProperty(name = "quarkus.keycloak.admin-client.realm")
   String realmName;
 
   @ConfigProperty(name = "quarkus.keycloak.admin-client.target-client-id")
   String targetClientId;
+
+  @Inject
+  public KeycloakProvisioningService(Keycloak keycloakAdminClient) {
+    this.keycloakAdminClient = keycloakAdminClient;
+  }
 
   /**
    * Crea el usuario en Keycloak con el DNI como username Y como contraseña
@@ -44,7 +54,6 @@ public class KeycloakProvisioningService {
    * no es un secreto real). Después de ese primer cambio forzado, el
    * usuario puede volver a cambiar su contraseña cuando quiera desde la
    * propia web, vía cambiarPassword(...) más abajo.
-   *
    * Devuelve el keycloakId generado. El llamador (UsuarioService) debe
    * persistir ese id en Usuario.keycloakId de inmediato, en la misma
    * operación: si esa escritura local falla después de este punto, debe
@@ -70,7 +79,7 @@ public class KeycloakProvisioningService {
                 "No se pudo crear el usuario en Keycloak, status=" + respuesta.getStatus());
       }
       String keycloakId = extraerIdDeLocation(respuesta.getLocation().getPath());
-      asignarRol(keycloakId, rol);
+      agregarRol(UUID.fromString(keycloakId), rol);
       return UUID.fromString(keycloakId);
     } catch (KeycloakSyncException e) {
       throw e;
@@ -144,26 +153,71 @@ public class KeycloakProvisioningService {
     }
   }
 
-  private void asignarRol(String keycloakId, Rol rol) {
-    // 1. Obtener la lista de clientes y buscar por clientId exacto ignorando espacios/mayúsculas
-    String clientUuid = realm().clients().findAll().stream()
+  /**
+   * Agrega un CLIENT ROLE (del client targetClientId) a un usuario que ya
+   * existe en Keycloak — se usa tanto en la creación inicial como cuando
+   * un ADMIN le agrega un rol adicional a un usuario existente
+   * (POST /usuarios/{id}/roles). Es idempotente: si el usuario ya tenía
+   * ese role, Keycloak no hace nada.
+   */
+  public void agregarRol(UUID keycloakId, Rol rol) {
+    try {
+      String clientUuid = obtenerClientUuid();
+      RoleRepresentation roleRepresentation = realm().clients()
+              .get(clientUuid)
+              .roles()
+              .get(rol.name())
+              .toRepresentation();
+
+      realm().users().get(keycloakId.toString())
+              .roles()
+              .clientLevel(clientUuid)
+              .add(List.of(roleRepresentation));
+    } catch (NotFoundException e) {
+      throw new KeycloakSyncException(
+              "El rol '" + rol.name() + "' no existe como client role de '" + targetClientId + "' en Keycloak.", e);
+    } catch (ForbiddenException e) {
+      throw new KeycloakSyncException(
+              "El client de backend no tiene permisos para leer o asignar roles en Keycloak (realm-management).", e);
+    }
+  }
+
+  /**
+   * Compensación best-effort de agregarRol(...), para cuando la escritura
+   * local (usuario_sede_rol / el perfil correspondiente) falla después de
+   * haber agregado el rol en Keycloak. Igual que eliminarPorId, si esto
+   * también falla no se reintenta en caliente — queda para reconciliación.
+   */
+  public void quitarRol(UUID keycloakId, Rol rol) {
+    try {
+      String clientUuid = obtenerClientUuid();
+      RoleRepresentation roleRepresentation = realm().clients()
+              .get(clientUuid)
+              .roles()
+              .get(rol.name())
+              .toRepresentation();
+
+      realm().users().get(keycloakId.toString())
+              .roles()
+              .clientLevel(clientUuid)
+              .remove(List.of(roleRepresentation));
+    } catch (Exception e) {
+      LOG.errorf(e,
+              "No se pudo revertir en Keycloak el rol %s del usuario %s. Requiere reconciliación manual.",
+              rol, keycloakId);
+    }
+  }
+
+  /**
+   * Busca el UUID interno del client targetClientId (distinto de su
+   * clientId legible) — lo necesita cualquier operación de client roles.
+   */
+  private String obtenerClientUuid() {
+    return realm().clients().findAll().stream()
             .filter(c -> targetClientId.trim().equalsIgnoreCase(c.getClientId()))
             .findFirst()
             .orElseThrow(() -> new IllegalStateException("Cliente no encontrado: [" + targetClientId + "]"))
             .getId();
-
-    // 2. Obtener el rol del cliente
-    RoleRepresentation roleRepresentation = realm().clients()
-            .get(clientUuid)
-            .roles()
-            .get(rol.name())
-            .toRepresentation();
-
-    // 3. Asignar el rol a nivel de cliente
-    realm().users().get(keycloakId)
-            .roles()
-            .clientLevel(clientUuid)
-            .add(List.of(roleRepresentation));
   }
 
   private RealmResource realm() {

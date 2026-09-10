@@ -14,17 +14,35 @@ import users.domain.repository.AdministrativoPerfilRepository;
 import users.domain.repository.DocentePerfilRepository;
 import users.domain.repository.EstudiantePerfilRepository;
 import users.domain.repository.UsuarioRepository;
+import users.domain.repository.UsuarioSedeRolRepository;
 import users.infrastructure.keycloak.KeycloakProvisioningService;
 import users.security.ContextoAcceso;
 
 @ApplicationScoped
 public class PerfilPropioService {
 
-  @Inject UsuarioRepository usuarioRepository;
-  @Inject DocentePerfilRepository docentePerfilRepository;
-  @Inject EstudiantePerfilRepository estudiantePerfilRepository;
-  @Inject AdministrativoPerfilRepository administrativoPerfilRepository;
-  @Inject KeycloakProvisioningService keycloakProvisioningService;
+  private final UsuarioRepository usuarioRepository;
+  private final UsuarioSedeRolRepository usuarioSedeRolRepository;
+  private final DocentePerfilRepository docentePerfilRepository;
+  private final EstudiantePerfilRepository estudiantePerfilRepository;
+  private final AdministrativoPerfilRepository administrativoPerfilRepository;
+  private final KeycloakProvisioningService keycloakProvisioningService;
+
+  @Inject
+  public PerfilPropioService(UsuarioRepository usuarioRepository,
+                             UsuarioSedeRolRepository usuarioSedeRolRepository,
+                             DocentePerfilRepository docentePerfilRepository,
+                             EstudiantePerfilRepository estudiantePerfilRepository,
+                             AdministrativoPerfilRepository administrativoPerfilRepository,
+                             KeycloakProvisioningService keycloakProvisioningService) {
+    this.usuarioRepository = usuarioRepository;
+    this.usuarioSedeRolRepository = usuarioSedeRolRepository;
+    this.docentePerfilRepository = docentePerfilRepository;
+    this.estudiantePerfilRepository = estudiantePerfilRepository;
+    this.administrativoPerfilRepository = administrativoPerfilRepository;
+    this.keycloakProvisioningService = keycloakProvisioningService;
+
+  }
 
   /**
    * Se consultan los tres tipos de perfil SIEMPRE, sin filtrar por
@@ -52,6 +70,11 @@ public class PerfilPropioService {
     response.setFechaNacimiento(usuario.fechaNacimiento);
     response.setEstado(users.api.generated.model.EstadoUsuario.valueOf(usuario.estado.name()));
     response.setRol(users.api.generated.model.Rol.valueOf(contexto.rol().name()));
+    response.setRoles(
+            usuarioSedeRolRepository.vigentesDe(usuario.id).stream()
+                    .map(usr -> users.api.generated.model.Rol.valueOf(usr.rol.name()))
+                    .distinct()
+                    .toList());
     response.setSedes(contexto.sedesPermitidas());
 
     docentePerfilRepository.buscarPorUsuarioId(usuario.id).ifPresent(dp -> {

@@ -24,14 +24,31 @@ import java.util.Objects;
 @RolesAllowed("ADMIN")
 public class UsuarioAdminResource implements GestionUsuariosApi {
 
-  @Inject UsuarioService usuarioService;
-  @Inject RolSedeService rolSedeService;
-  @Inject UsuarioRepository usuarioRepository;
-  @Inject UsuarioSedeRolRepository usuarioSedeRolRepository;
-  @Inject DocentePerfilRepository docentePerfilRepository;
-  @Inject EstudiantePerfilRepository estudiantePerfilRepository;
-  @Inject AdministrativoPerfilRepository administrativoPerfilRepository;
-  @Inject ContextoAcceso contextoAcceso;
+  private final UsuarioService usuarioService;
+  private final RolSedeService rolSedeService;
+  private final UsuarioRepository usuarioRepository;
+  private final UsuarioSedeRolRepository usuarioSedeRolRepository;
+  private final DocentePerfilRepository docentePerfilRepository;
+  private final EstudiantePerfilRepository estudiantePerfilRepository;
+  private final AdministrativoPerfilRepository administrativoPerfilRepository;
+  private final ContextoAcceso contextoAcceso;
+
+  @Inject
+  public UsuarioAdminResource(UsuarioService usuarioService, RolSedeService rolSedeService, UsuarioRepository usuarioRepository,
+                              UsuarioSedeRolRepository usuarioSedeRolRepository,
+                              DocentePerfilRepository docentePerfilRepository,
+                              EstudiantePerfilRepository estudiantePerfilRepository,
+                              AdministrativoPerfilRepository administrativoPerfilRepository,
+                              ContextoAcceso contextoAcceso) {
+    this.usuarioService = usuarioService;
+    this.rolSedeService = rolSedeService;
+    this.usuarioRepository = usuarioRepository;
+    this.usuarioSedeRolRepository = usuarioSedeRolRepository;
+    this.docentePerfilRepository = docentePerfilRepository;
+    this.estudiantePerfilRepository = estudiantePerfilRepository;
+    this.administrativoPerfilRepository = administrativoPerfilRepository;
+    this.contextoAcceso = contextoAcceso;
+  }
 
   @Override
   public UsuarioAdminListPage listarUsuarios(Long sedeId, Rol rol, EstadoUsuario estado,
@@ -50,7 +67,6 @@ public class UsuarioAdminResource implements GestionUsuariosApi {
     response.setContenido(usuarios.stream().map(this::mapearListItem).toList());
     response.setPagina(paginaSolicitada);
     response.setTamanioPagina(tamanioSolicitado);
-    // TODO: total real filtrado (count con los mismos criterios), no el count global.
     response.setTotalElementos((int) usuarioRepository.count());
     return response;
   }
@@ -84,6 +100,11 @@ public class UsuarioAdminResource implements GestionUsuariosApi {
     rolSedeService.asignar(id, request, contextoAcceso);
   }
 
+  @Override
+  public void revocarRolSede(Long id, Rol rol, Long sedeId) {
+    rolSedeService.revocar(id, users.domain.model.Rol.valueOf(rol.name()), sedeId, contextoAcceso);
+  }
+
   private List<Long> resolverSedesFiltro(Long sedeIdSolicitada) {
     if (sedeIdSolicitada == null) {
       return contextoAcceso.sedesPermitidas();
@@ -106,6 +127,7 @@ public class UsuarioAdminResource implements GestionUsuariosApi {
 
     var asignaciones = usuarioSedeRolRepository.vigentesDe(usuario.id);
     asignaciones.stream().findFirst().ifPresent(a -> item.setRol(Rol.valueOf(a.rol.name())));
+    item.setRoles(asignaciones.stream().map(a -> Rol.valueOf(a.rol.name())).distinct().toList());
     item.setSedes(asignaciones.stream().map(a -> a.sedeId).filter(Objects::nonNull).toList());
     return item;
   }
@@ -122,6 +144,7 @@ public class UsuarioAdminResource implements GestionUsuariosApi {
 
     var asignaciones = usuarioSedeRolRepository.vigentesDe(usuario.id);
     asignaciones.stream().findFirst().ifPresent(a -> detalle.setRol(Rol.valueOf(a.rol.name())));
+    detalle.setRoles(asignaciones.stream().map(a -> Rol.valueOf(a.rol.name())).distinct().toList());
     detalle.setSedes(asignaciones.stream().map(a -> a.sedeId).filter(Objects::nonNull).toList());
 
     boolean esDocente = asignaciones.stream().anyMatch(a -> a.rol == users.domain.model.Rol.DOCENTE);

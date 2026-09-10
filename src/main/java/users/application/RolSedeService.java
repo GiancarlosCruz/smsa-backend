@@ -3,8 +3,10 @@ package users.application;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.jboss.logging.Logger;
 import users.api.generated.model.AsignarRolRequest;
 import users.domain.exception.AccesoSedeNoPermitidoException;
+import users.domain.exception.AsignacionRolNoEncontradaException;
 import users.domain.exception.UsuarioNoEncontradoException;
 import users.domain.model.AdministrativoPerfil;
 import users.domain.model.DocentePerfil;
@@ -18,20 +20,45 @@ import users.domain.repository.DocentePerfilRepository;
 import users.domain.repository.EstudiantePerfilRepository;
 import users.domain.repository.UsuarioRepository;
 import users.domain.repository.UsuarioSedeRolRepository;
+import users.infrastructure.keycloak.KeycloakProvisioningService;
 import users.security.ContextoAcceso;
 
 @ApplicationScoped
 public class RolSedeService {
 
-  @Inject UsuarioRepository usuarioRepository;
-  @Inject UsuarioSedeRolRepository usuarioSedeRolRepository;
-  @Inject DocentePerfilRepository docentePerfilRepository;
-  @Inject EstudiantePerfilRepository estudiantePerfilRepository;
-  @Inject AdministrativoPerfilRepository administrativoPerfilRepository;
-  @Inject CargoRepository cargoRepository;
+  private static final Logger LOG = Logger.getLogger(RolSedeService.class);
 
-  @Transactional
-  public UsuarioSedeRol asignar(Long usuarioId, AsignarRolRequest request, ContextoAcceso contexto) {
+  private final UsuarioRepository usuarioRepository;
+  private final UsuarioSedeRolRepository usuarioSedeRolRepository;
+  private final DocentePerfilRepository docentePerfilRepository;
+  private final EstudiantePerfilRepository estudiantePerfilRepository;
+  private final AdministrativoPerfilRepository administrativoPerfilRepository;
+  private final CargoRepository cargoRepository;
+  private final KeycloakProvisioningService keycloakProvisioningService;
+
+  @Inject
+  public RolSedeService(UsuarioRepository usuarioRepository,
+                        UsuarioSedeRolRepository usuarioSedeRolRepository,
+                        DocentePerfilRepository docentePerfilRepository,
+                        EstudiantePerfilRepository estudiantePerfilRepository,
+                        AdministrativoPerfilRepository administrativoPerfilRepository,
+                        CargoRepository cargoRepository,
+                        KeycloakProvisioningService keycloakProvisioningService) {
+    this.usuarioRepository = usuarioRepository;
+    this.usuarioSedeRolRepository = usuarioSedeRolRepository;
+    this.docentePerfilRepository = docentePerfilRepository;
+    this.estudiantePerfilRepository = estudiantePerfilRepository;
+    this.administrativoPerfilRepository = administrativoPerfilRepository;
+    this.cargoRepository = cargoRepository;
+    this.keycloakProvisioningService = keycloakProvisioningService;
+  }
+
+  /**
+   * Igual que UsuarioService.crear: Keycloak primero (fuera de la
+   * transacción local), luego la escritura local. Si la escritura local
+   * falla, se compensa quitando el rol recién agregado en Keycloak.
+   */
+  public void asignar(Long usuarioId, AsignarRolRequest request, ContextoAcceso contexto) {
     Usuario usuario = usuarioRepository.findByIdOptional(usuarioId)
             .orElseThrow(() -> new UsuarioNoEncontradoException(usuarioId));
 
@@ -57,13 +84,30 @@ public class RolSedeService {
       }
     }
 
+    keycloakProvisioningService.agregarRol(usuario.keycloakId, rol);
+
+    try {
+      persistirAsignacion(usuario.id, rol, request);
+    } catch (RuntimeException e) {
+      LOG.errorf(e,
+              "Falló la escritura local tras agregar el rol %s en Keycloak (keycloakId=%s), compensando",
+              rol, usuario.keycloakId);
+      keycloakProvisioningService.quitarRol(usuario.keycloakId, rol);
+      throw e;
+    }
+  }
+
+  @Transactional
+  protected void persistirAsignacion(Long usuarioId, Rol rol, AsignarRolRequest request) {
+    Usuario usuarioPersist = usuarioRepository.findByIdOptional(usuarioId)
+            .orElseThrow(() -> new UsuarioNoEncontradoException(usuarioId));
     UsuarioSedeRol asignacion = new UsuarioSedeRol();
-    asignacion.usuario = usuario;
+    asignacion.usuario = usuarioPersist;
     asignacion.sedeId = request.getSedeId();
     asignacion.rol = rol;
     asignacion.fechaInicio = request.getFechaInicio() != null
             ? request.getFechaInicio()
-            : java.time.LocalDate.now();
+            : java.time.LocalDate.now(java.time.ZoneId.of("America/Lima"));
     asignacion.fechaFin = request.getFechaFin();
     usuarioSedeRolRepository.persist(asignacion);
 
@@ -73,9 +117,8 @@ public class RolSedeService {
     // usuario — si ya existe (porque ya tenía ese rol antes, o porque
     // se le está agregando una segunda asignación del mismo rol en otra
     // sede), no se toca ni se duplica.
-    crearPerfilSiNoExiste(usuario, rol, request);
+    crearPerfilSiNoExiste(usuarioPersist, rol, request);
 
-    return asignacion;
   }
 
   private void crearPerfilSiNoExiste(Usuario usuario, Rol rol, AsignarRolRequest request) {
@@ -116,6 +159,42 @@ public class RolSedeService {
       perfil.areaAdministrativa = dto.getAreaAdministrativa();
       perfil.condicion = dto.getCondicion();
       administrativoPerfilRepository.persist(perfil);
+    }
+  }
+
+  /**
+   * Termina la asignación vigente (rol+sede) marcando fechaFin, y solo
+   * toca Keycloak si esa era la ÚLTIMA asignación vigente de ese rol para
+   * el usuario — si sigue teniendo el mismo rol en otra sede, el rol de
+   * Keycloak se mantiene (ahí no hay noción de sede).
+   */
+  @Transactional
+  public void revocar(Long usuarioId, Rol rol, Long sedeId, ContextoAcceso contexto) {
+    Usuario usuario = usuarioRepository.findByIdOptional(usuarioId)
+            .orElseThrow(() -> new UsuarioNoEncontradoException(usuarioId));
+
+    if (!contexto.esAdminGlobal() && (sedeId == null || !contexto.tieneAccesoASede(sedeId))) {
+      throw new AccesoSedeNoPermitidoException(sedeId);
+    }
+
+
+    var todasVigentes = usuarioSedeRolRepository.vigentesDe(usuario.id);
+    var aRevocar = todasVigentes.stream()
+            .filter(a -> a.rol == rol && java.util.Objects.equals(a.sedeId, sedeId))
+            .toList();
+
+    if (aRevocar.isEmpty()) {
+      throw new AsignacionRolNoEncontradaException(usuarioId, rol, sedeId);
+    }
+
+    aRevocar.forEach(a -> a.fechaFin = java.time.LocalDate.now(java.time.ZoneId.of("America/Lima")));
+
+    boolean quedanOtrasDelMismoRol = todasVigentes.stream()
+            .filter(a -> !aRevocar.contains(a))
+            .anyMatch(a -> a.rol == rol);
+
+    if (!quedanOtrasDelMismoRol) {
+      keycloakProvisioningService.quitarRol(usuario.keycloakId, rol);
     }
   }
 }

@@ -425,6 +425,35 @@ paths:
         "404":
           $ref: "#/components/responses/NoEncontrado"
 
+    delete:
+      tags: [ gestion-usuarios ]
+      summary: Revocar un rol de un usuario
+      description: >
+        Termina la asignación vigente (rol + sede) marcando su `fechaFin`
+        como hoy — no borra el historial. Si esa era la ÚLTIMA asignación
+        vigente de ese rol para el usuario (en cualquier sede), también se
+        remueve el rol en Keycloak; si el usuario sigue teniendo ese mismo
+        rol en otra sede, se mantiene en Keycloak (los roles de Keycloak no
+        están atados a una sede).
+      operationId: revocarRolSede
+      parameters:
+        - name: rol
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/Rol" }
+        - name: sedeId
+          in: query
+          required: false
+          description: Omitir solo si la asignación a revocar es de acceso global (ADMIN).
+          schema: { type: integer, format: int64 }
+      responses:
+        "204":
+          description: Rol revocado
+        "404":
+          $ref: "#/components/responses/NoEncontrado"
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -482,6 +511,14 @@ components:
         fechaNacimiento: { type: string, format: date, example: "1995-04-12" }
         estado: { $ref: "#/components/schemas/EstadoUsuario" }
         rol: { $ref: "#/components/schemas/Rol" }
+        roles:
+          type: array
+          description: >
+            TODOS los roles vigentes de este usuario (a diferencia de `rol`,
+            que es solo uno "informativo"). Úsalo para decidir si mostrar un
+            selector de "¿con cuál rol quieres entrar?" cuando tiene más de
+            uno — ej. un docente que también es administrativo.
+          items: { $ref: "#/components/schemas/Rol" }
         sedes:
           type: array
           description: >
