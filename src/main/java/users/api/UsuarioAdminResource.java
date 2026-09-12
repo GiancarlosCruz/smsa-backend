@@ -4,6 +4,7 @@ import io.quarkus.panache.common.Page;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.enterprise.context.RequestScoped;
 import jakarta.inject.Inject;
+
 import users.api.generated.GestionUsuariosApi;
 import users.api.generated.model.*;
 import users.application.RolSedeService;
@@ -24,31 +25,14 @@ import java.util.Objects;
 @RolesAllowed("ADMIN")
 public class UsuarioAdminResource implements GestionUsuariosApi {
 
-  private final UsuarioService usuarioService;
-  private final RolSedeService rolSedeService;
-  private final UsuarioRepository usuarioRepository;
-  private final UsuarioSedeRolRepository usuarioSedeRolRepository;
-  private final DocentePerfilRepository docentePerfilRepository;
-  private final EstudiantePerfilRepository estudiantePerfilRepository;
-  private final AdministrativoPerfilRepository administrativoPerfilRepository;
-  private final ContextoAcceso contextoAcceso;
-
-  @Inject
-  public UsuarioAdminResource(UsuarioService usuarioService, RolSedeService rolSedeService, UsuarioRepository usuarioRepository,
-                              UsuarioSedeRolRepository usuarioSedeRolRepository,
-                              DocentePerfilRepository docentePerfilRepository,
-                              EstudiantePerfilRepository estudiantePerfilRepository,
-                              AdministrativoPerfilRepository administrativoPerfilRepository,
-                              ContextoAcceso contextoAcceso) {
-    this.usuarioService = usuarioService;
-    this.rolSedeService = rolSedeService;
-    this.usuarioRepository = usuarioRepository;
-    this.usuarioSedeRolRepository = usuarioSedeRolRepository;
-    this.docentePerfilRepository = docentePerfilRepository;
-    this.estudiantePerfilRepository = estudiantePerfilRepository;
-    this.administrativoPerfilRepository = administrativoPerfilRepository;
-    this.contextoAcceso = contextoAcceso;
-  }
+  @Inject UsuarioService usuarioService;
+  @Inject RolSedeService rolSedeService;
+  @Inject UsuarioRepository usuarioRepository;
+  @Inject UsuarioSedeRolRepository usuarioSedeRolRepository;
+  @Inject DocentePerfilRepository docentePerfilRepository;
+  @Inject EstudiantePerfilRepository estudiantePerfilRepository;
+  @Inject AdministrativoPerfilRepository administrativoPerfilRepository;
+  @Inject ContextoAcceso contextoAcceso;
 
   @Override
   public UsuarioAdminListPage listarUsuarios(Long sedeId, Rol rol, EstadoUsuario estado,
@@ -67,7 +51,7 @@ public class UsuarioAdminResource implements GestionUsuariosApi {
     response.setContenido(usuarios.stream().map(this::mapearListItem).toList());
     response.setPagina(paginaSolicitada);
     response.setTamanioPagina(tamanioSolicitado);
-    response.setTotalElementos((int) usuarioRepository.count());
+    response.setTotalElementos((int) usuarioRepository.contarParaAdmin(sedesFiltro, rolDominio, estadoDominio, q));
     return response;
   }
 

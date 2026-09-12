@@ -224,6 +224,44 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/AsignarOpcionesCargoRequest"
+      responses:
+        "204":
+          description: Asignación actualizada
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+
+  /menu/roles/{rol}/opciones:
+    parameters:
+      - name: rol
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/Rol" }
+    get:
+      tags: [menu-admin]
+      summary: Ver las opciones de menú base asignadas a un rol
+      operationId: obtenerOpcionesDeRol
+      responses:
+        "200":
+          description: Opciones asignadas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpcionMenuResponse"
+        "403":
+          $ref: "#/components/responses/SinPermiso"
+
+    put:
+      tags: [menu-admin]
+      summary: Reemplazar el conjunto completo de opciones base asignadas a un rol
+      operationId: asignarOpcionesARol
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AsignarOpcionesCargoRequest"
             example:
               opcionesIds: [5, 6, 7]
       responses:
@@ -248,6 +286,14 @@ components:
       description: Recurso no encontrado
 
   schemas:
+    Rol:
+      type: string
+      description: >
+        Duplicado intencional del enum Rol del módulo usuarios — este es un
+        documento OpenAPI independiente, no puede referenciar sus schemas.
+        Debe mantenerse sincronizado a mano si cambia allá.
+      enum: [ADMIN, DOCENTE, ESTUDIANTE, ADMINISTRATIVO]
+
     OpcionMenuResponse:
       type: object
       description: >

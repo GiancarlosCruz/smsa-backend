@@ -28,10 +28,6 @@ public class UsuarioRepository implements PanacheRepository<Usuario> {
     return count("tipoDocumento = ?1 and numeroDocumento = ?2", tipoDocumento, numeroDocumento) > 0;
   }
 
-  public boolean existeEmail(String email) {
-    return count("email", email) > 0;
-  }
-
   /**
    * Listado para gestión admin, ya restringido a las sedes permitidas del admin autenticado.
    *
@@ -70,5 +66,40 @@ public class UsuarioRepository implements PanacheRepository<Usuario> {
     }
 
     return find(jpql.toString(), params).page(page).list();
+  }
+
+  /**
+   * Mismos filtros que listarParaAdmin, para el totalElementos real de la
+   * página — antes se usaba count() global, que no reflejaba los filtros.
+   */
+  public long contarParaAdmin(List<Long> sedesPermitidas, Rol rol, EstadoUsuario estado, String textoBusqueda) {
+    if (sedesPermitidas != null && sedesPermitidas.isEmpty()) {
+      return 0;
+    }
+
+    StringBuilder jpql = new StringBuilder(
+            "select count(distinct u) from Usuario u join UsuarioSedeRol usr on usr.usuario = u " +
+                    "where (usr.fechaFin is null or usr.fechaFin >= current_date)");
+    Parameters params = new Parameters();
+
+    if (sedesPermitidas != null) {
+      jpql.append(" and usr.sedeId in (:sedes)");
+      params = params.and("sedes", sedesPermitidas);
+    }
+    if (rol != null) {
+      jpql.append(" and usr.rol = :rol");
+      params = params.and("rol", rol);
+    }
+    if (estado != null) {
+      jpql.append(" and u.estado = :estado");
+      params = params.and("estado", estado);
+    }
+    if (textoBusqueda != null && !textoBusqueda.isBlank()) {
+      jpql.append(" and (lower(u.nombres) like :texto or lower(u.apellidoPaterno) like :texto " +
+              "or u.numeroDocumento like :texto)");
+      params = params.and("texto", "%" + textoBusqueda.toLowerCase() + "%");
+    }
+
+    return count(jpql.toString(), params);
   }
 }

@@ -16,13 +16,16 @@ public class ContextoAcceso {
 
   private final Long usuarioId;
   private final Rol rol;
+  private final List<Rol> roles; // TODOS los roles vigentes, a diferencia de rol (solo uno "informativo")
   private final List<Long> sedesPermitidas; // null = acceso a todas las sedes
   private final boolean adminGlobal;
-  private final Long cargoId; // null si el rol no es ADMINISTRATIVO o no tiene cargo asignado
+  private final Long cargoId; // null si el usuario no tiene rol ADMINISTRATIVO con cargo asignado
 
-  public ContextoAcceso(Long usuarioId, Rol rol, List<Long> sedesPermitidas, boolean adminGlobal, Long cargoId) {
+  public ContextoAcceso(Long usuarioId, Rol rol, List<Rol> roles, List<Long> sedesPermitidas,
+                        boolean adminGlobal, Long cargoId) {
     this.usuarioId = usuarioId;
     this.rol = rol;
+    this.roles = roles;
     this.sedesPermitidas = sedesPermitidas;
     this.adminGlobal = adminGlobal;
     this.cargoId = cargoId;
@@ -38,6 +41,10 @@ public class ContextoAcceso {
 
   public Rol rol() {
     return rol;
+  }
+
+  public List<Rol> roles() {
+    return roles;
   }
 
   public List<Long> sedesPermitidas() {

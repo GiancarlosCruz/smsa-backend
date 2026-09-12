@@ -8,7 +8,6 @@ import users.api.generated.model.ActualizarUsuarioRequest;
 import users.api.generated.model.CrearUsuarioRequest;
 import users.domain.exception.AccesoSedeNoPermitidoException;
 import users.domain.exception.DocumentoDuplicadoException;
-import users.domain.exception.EmailDuplicadoException;
 import users.domain.exception.UsuarioNoEncontradoException;
 import users.domain.model.AdministrativoPerfil;
 import users.domain.model.DocentePerfil;
@@ -50,10 +49,6 @@ public class UsuarioService {
   public Usuario crear(CrearUsuarioRequest request, ContextoAcceso contexto) {
     if (usuarioRepository.existeDocumento(request.getTipoDocumento(), request.getNumeroDocumento())) {
       throw new DocumentoDuplicadoException(request.getTipoDocumento(), request.getNumeroDocumento());
-    }
-
-    if(usuarioRepository.existeEmail(request.getEmail())) {
-      throw new EmailDuplicadoException(request.getEmail());
     }
 
     Rol rol = Rol.valueOf(request.getRol().name());
@@ -138,6 +133,13 @@ public class UsuarioService {
     return usuario;
   }
 
+  /**
+   * Actualiza datos base (todos los campos de ActualizarUsuarioRequest, no
+   * solo los 3 que cubría antes) y, si vienen, los datos de cada perfil —
+   * pero solo si ese perfil YA EXISTE para este usuario. No crea un perfil
+   * nuevo acá: para agregar un rol/perfil que el usuario no tenía, se usa
+   * POST /usuarios/{id}/roles (que sí crea la fila correspondiente).
+   */
   @Transactional
   public Usuario actualizar(Long usuarioId, ActualizarUsuarioRequest request, ContextoAcceso contexto) {
     Usuario usuario = usuarioRepository.findByIdOptional(usuarioId)
@@ -147,7 +149,52 @@ public class UsuarioService {
 
     if (request.getNombres() != null) usuario.nombres = request.getNombres();
     if (request.getApellidoPaterno() != null) usuario.apellidoPaterno = request.getApellidoPaterno();
+    if (request.getApellidoMaterno() != null) usuario.apellidoMaterno = request.getApellidoMaterno();
     if (request.getTelefono() != null) usuario.telefono = request.getTelefono();
+    if (request.getSexo() != null) {
+      usuario.sexo = users.domain.model.Sexo.valueOf(request.getSexo().name()).name();
+    }
+    if (request.getFechaNacimiento() != null) usuario.fechaNacimiento = request.getFechaNacimiento();
+
+    if (request.getPerfilDocente() != null) {
+      docentePerfilRepository.buscarPorUsuarioId(usuario.id).ifPresent(perfil -> {
+        var dto = request.getPerfilDocente();
+        if (dto.getGradoAcademico() != null) perfil.gradoAcademico = dto.getGradoAcademico();
+        if (dto.getEspecialidad() != null) perfil.especialidad = dto.getEspecialidad();
+        if (dto.getTipoContrato() != null) perfil.tipoContrato = dto.getTipoContrato();
+        if (dto.getFechaIngreso() != null) perfil.fechaIngreso = dto.getFechaIngreso();
+        if (dto.getDireccion() != null) perfil.direccion = dto.getDireccion();
+        if (dto.getCargoAdministrativo() != null) perfil.cargoAdministrativo = dto.getCargoAdministrativo();
+      });
+    }
+
+    if (request.getPerfilEstudiante() != null) {
+      estudiantePerfilRepository.buscarPorUsuarioId(usuario.id).ifPresent(perfil -> {
+        var dto = request.getPerfilEstudiante();
+        // codigoEstudiante, periodoIngreso y tipoRegistro se tratan como
+        // inmutables una vez fijados (son datos de origen del ingreso).
+        if (dto.getProgramaId() != null) perfil.programaId = dto.getProgramaId();
+        if (dto.getContactoEmergenciaNombre() != null) {
+          perfil.contactoEmergenciaNombre = dto.getContactoEmergenciaNombre();
+        }
+        if (dto.getContactoEmergenciaTelefono() != null) {
+          perfil.contactoEmergenciaTelefono = dto.getContactoEmergenciaTelefono();
+        }
+        if (dto.getDireccion() != null) perfil.direccion = dto.getDireccion();
+      });
+    }
+
+    if (request.getPerfilAdministrativo() != null) {
+      administrativoPerfilRepository.buscarPorUsuarioId(usuario.id).ifPresent(perfil -> {
+        var dto = request.getPerfilAdministrativo();
+        if (dto.getCargoId() != null) {
+          perfil.cargo = cargoRepository.findByIdOptional(dto.getCargoId())
+                  .orElseThrow(() -> new IllegalArgumentException("cargoId inexistente: " + dto.getCargoId()));
+        }
+        if (dto.getAreaAdministrativa() != null) perfil.areaAdministrativa = dto.getAreaAdministrativa();
+        if (dto.getCondicion() != null) perfil.condicion = dto.getCondicion();
+      });
+    }
 
     keycloakProvisioningService.actualizarDatosBasicos(
             usuario.keycloakId, usuario.nombres, usuario.apellidoPaterno, usuario.email);

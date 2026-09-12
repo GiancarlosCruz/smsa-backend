@@ -33,6 +33,44 @@ public class OpcionMenuRepository implements PanacheRepositoryBase<OpcionMenu, L
   }
 
   /**
+   * Menú base por rol — a diferencia de cargoId (solo aplica a
+   * ADMINISTRATIVO), esto aplica a cualquiera de los 4 roles. rol llega
+   * como String (el name() del enum), no como tipo — este módulo no
+   * depende del enum Rol de usuarios, sigue el mismo criterio que cargoId.
+   */
+  public List<OpcionMenu> buscarPorRol(String rol) {
+    return getEntityManager()
+            .createNativeQuery(
+                    "select om.* from opcion_menu om " +
+                            "join rol_opcion_menu rom on rom.opcion_menu_id = om.id " +
+                            "where rom.rol = :rol " +
+                            "order by om.orden",
+                    OpcionMenu.class)
+            .setParameter("rol", rol)
+            .getResultList();
+  }
+
+  /**
+   * Reemplaza el conjunto completo de opciones asignadas a un rol.
+   * El llamador (OpcionMenuService) es responsable de la transacción.
+   */
+  public void reemplazarOpcionesDeRol(String rol, List<Long> opcionesIds) {
+    getEntityManager()
+            .createNativeQuery("delete from rol_opcion_menu where rol = :rol")
+            .setParameter("rol", rol)
+            .executeUpdate();
+
+    for (Long opcionId : opcionesIds) {
+      getEntityManager()
+              .createNativeQuery(
+                      "insert into rol_opcion_menu (rol, opcion_menu_id) values (:rol, :opcionId)")
+              .setParameter("rol", rol)
+              .setParameter("opcionId", opcionId)
+              .executeUpdate();
+    }
+  }
+
+  /**
    * Reemplaza el conjunto completo de opciones asignadas a un cargo.
    * El llamador (OpcionMenuService) es responsable de la transacción.
    */

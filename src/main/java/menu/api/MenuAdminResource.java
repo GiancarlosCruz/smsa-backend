@@ -8,6 +8,7 @@ import menu.api.generated.model.ActualizarOpcionMenuRequest;
 import menu.api.generated.model.AsignarOpcionesCargoRequest;
 import menu.api.generated.model.CrearOpcionMenuRequest;
 import menu.api.generated.model.OpcionMenuResponse;
+import menu.api.generated.model.Rol;
 import menu.application.OpcionMenuService;
 import menu.domain.model.OpcionMenu;
 
@@ -47,6 +48,16 @@ public class MenuAdminResource implements MenuAdminApi {
   @Override
   public void asignarOpcionesACargo(Long cargoId, AsignarOpcionesCargoRequest request) {
     opcionMenuService.asignarOpcionesACargo(cargoId, request.getOpcionesIds());
+  }
+
+  @Override
+  public List<OpcionMenuResponse> obtenerOpcionesDeRol(Rol rol) {
+    return opcionMenuService.obtenerOpcionesDeRol(rol.name()).stream().map(this::mapear).toList();
+  }
+
+  @Override
+  public void asignarOpcionesARol(Rol rol, AsignarOpcionesCargoRequest request) {
+    opcionMenuService.asignarOpcionesARol(rol.name(), request.getOpcionesIds());
   }
 
   private OpcionMenuResponse mapear(OpcionMenu opcion) {

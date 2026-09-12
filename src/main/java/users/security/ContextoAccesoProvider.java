@@ -59,10 +59,15 @@ public class ContextoAccesoProvider {
             ? null
             : asignacionesVigentes.stream().map(usr -> usr.sedeId).toList();
 
+    List<Rol> roles = asignacionesVigentes.stream()
+            .map(usr -> usr.rol)
+            .distinct()
+            .toList();
+
     Long cargoId = administrativoPerfilRepository.buscarPorUsuarioId(usuario.id)
             .map(perfil -> perfil.cargo.id)
             .orElse(null);
 
-    return new ContextoAcceso(usuario.id, rol, sedesPermitidas, adminGlobal, cargoId);
+    return new ContextoAcceso(usuario.id, rol, roles, sedesPermitidas, adminGlobal, cargoId);
   }
 }

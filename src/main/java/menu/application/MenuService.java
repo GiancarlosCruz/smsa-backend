@@ -5,22 +5,32 @@ import jakarta.inject.Inject;
 import menu.api.generated.model.OpcionMenuResponse;
 import menu.domain.model.OpcionMenu;
 import menu.domain.repository.OpcionMenuRepository;
+import users.domain.model.Rol;
 import users.security.ContextoAcceso;
 
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Data-driven a propósito: agregar/quitar una opción o reordenar la
- * jerarquía es una operación sobre datos (cargo_opcion_menu / opcion_padre_id),
- * nunca un cambio de código ni un deploy.
+ * Data-driven a propósito: agregar/quitar una opción, reordenar la
+ * jerarquía, o cambiar qué rol/cargo ve qué, es una operación sobre datos
+ * (rol_opcion_menu / cargo_opcion_menu / opcion_padre_id), nunca un cambio
+ * de código ni un deploy.
  *
- * Un hijo solo se anida bajo su padre si AMBOS están asignados al cargo en
- * cargo_opcion_menu. Si asignas un hijo pero no su padre (por descuido al
- * armar la asignación), no se pierde: aparece como ítem de nivel raíz en
- * vez de desaparecer silenciosamente.
+ * El menú final es la UNIÓN de dos fuentes:
+ * - rol_opcion_menu: menú base, aplica a CUALQUIERA de los roles vigentes
+ *   del usuario (no solo el "informativo" — un docente que también es
+ *   administrativo ve el menú base de AMBOS roles combinado).
+ * - cargo_opcion_menu: refinamiento fino, solo aplica si tiene cargo
+ *   (ADMINISTRATIVO).
+ *
+ * Un hijo solo se anida bajo su padre si ambos quedaron en el conjunto
+ * combinado. Si un hijo queda sin su padre, no se pierde: aparece como
+ * ítem de nivel raíz en vez de desaparecer silenciosamente.
  */
 @ApplicationScoped
 public class MenuService {
@@ -28,17 +38,31 @@ public class MenuService {
   @Inject OpcionMenuRepository opcionMenuRepository;
 
   public List<OpcionMenuResponse> obtenerMenuPropio(ContextoAcceso contexto) {
-    if (contexto.cargoId() == null) {
+    List<Rol> roles = contexto.roles();
+    if (roles == null || roles.isEmpty()) {
       return List.of();
     }
 
-    List<OpcionMenu> asignadas = opcionMenuRepository.buscarPorCargoId(contexto.cargoId());
-    Set<Long> idsAsignados = asignadas.stream().map(o -> o.id).collect(Collectors.toSet());
+    List<OpcionMenu> porRol = roles.stream()
+            .flatMap(rol -> opcionMenuRepository.buscarPorRol(rol.name()).stream())
+            .toList();
 
-    return asignadas.stream()
+    List<OpcionMenu> porCargo = contexto.cargoId() != null
+            ? opcionMenuRepository.buscarPorCargoId(contexto.cargoId())
+            : List.of();
+
+    // Unión sin duplicados, preservando la primera aparición de cada id.
+    Map<Long, OpcionMenu> combinadas = new LinkedHashMap<>();
+    porRol.forEach(o -> combinadas.putIfAbsent(o.id, o));
+    porCargo.forEach(o -> combinadas.putIfAbsent(o.id, o));
+    List<OpcionMenu> todas = List.copyOf(combinadas.values());
+
+    Set<Long> idsAsignados = todas.stream().map(o -> o.id).collect(Collectors.toSet());
+
+    return todas.stream()
             .filter(o -> o.opcionPadre == null || !idsAsignados.contains(o.opcionPadre))
             .sorted(Comparator.comparingInt(o -> o.orden))
-            .map(raiz -> mapearConHijos(raiz, asignadas))
+            .map(raiz -> mapearConHijos(raiz, todas))
             .toList();
   }
 
