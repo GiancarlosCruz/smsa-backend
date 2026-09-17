@@ -18,7 +18,12 @@ import java.util.List;
 @RolesAllowed("ADMIN")
 public class MenuAdminResource implements MenuAdminApi {
 
-  @Inject OpcionMenuService opcionMenuService;
+  private final OpcionMenuService opcionMenuService;
+
+  @Inject
+  public MenuAdminResource(OpcionMenuService opcionMenuService) {
+    this.opcionMenuService = opcionMenuService;
+  }
 
   @Override
   public List<OpcionMenuResponse> listarOpciones() {

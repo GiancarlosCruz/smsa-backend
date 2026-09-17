@@ -13,8 +13,14 @@ import java.util.List;
 @RequestScoped
 public class MenuResource implements MenuApi {
 
-  @Inject MenuService menuService;
-  @Inject ContextoAcceso contextoAcceso;
+  private final MenuService menuService;
+  private final ContextoAcceso contextoAcceso;
+
+  @Inject
+  public MenuResource (MenuService menuService, ContextoAcceso contextoAcceso){
+    this.menuService = menuService;
+    this.contextoAcceso = contextoAcceso;
+  }
 
   @Override
   @RolesAllowed({"ADMIN", "DOCENTE", "ESTUDIANTE", "ADMINISTRATIVO"})
