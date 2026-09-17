@@ -1,6 +1,5 @@
 package menu.domain.model;
 
-import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -15,7 +14,7 @@ import jakarta.persistence.Table;
  */
 @Entity
 @Table(name = "opcion_menu")
-public class OpcionMenu extends PanacheEntityBase {
+public class OpcionMenu {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -39,6 +38,5 @@ public class OpcionMenu extends PanacheEntityBase {
   //@ManyToOne(fetch = FetchType.LAZY)
   @Column(name = "opcion_padre_id")
   public Long opcionPadre;
-
 
 }

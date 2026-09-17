@@ -43,19 +43,28 @@ public class MenuService {
       return List.of();
     }
 
-    List<OpcionMenu> porRol = roles.stream()
-            .flatMap(rol -> opcionMenuRepository.buscarPorRol(rol.name()).stream())
-            .toList();
+    List<OpcionMenu> todas;
+    if (roles.contains(Rol.ADMIN)) {
+      // ADMIN tiene acceso total: ve TODO el catálogo, sin necesidad
+      // de curar rol_opcion_menu para él. Si además tiene otro rol
+      // (ej. también DOCENTE), esto igual domina — ver todo es un
+      // superset de cualquier menú parcial.
+      todas = opcionMenuRepository.listAll();
+    } else {
+      List<OpcionMenu> porRol = roles.stream()
+              .flatMap(rol -> opcionMenuRepository.buscarPorRol(rol.name()).stream())
+              .toList();
 
-    List<OpcionMenu> porCargo = contexto.cargoId() != null
-            ? opcionMenuRepository.buscarPorCargoId(contexto.cargoId())
-            : List.of();
+      List<OpcionMenu> porCargo = contexto.cargoId() != null
+              ? opcionMenuRepository.buscarPorCargoId(contexto.cargoId())
+              : List.of();
 
-    // Unión sin duplicados, preservando la primera aparición de cada id.
-    Map<Long, OpcionMenu> combinadas = new LinkedHashMap<>();
-    porRol.forEach(o -> combinadas.putIfAbsent(o.id, o));
-    porCargo.forEach(o -> combinadas.putIfAbsent(o.id, o));
-    List<OpcionMenu> todas = List.copyOf(combinadas.values());
+      // Unión sin duplicados, preservando la primera aparición de cada id.
+      Map<Long, OpcionMenu> combinadas = new LinkedHashMap<>();
+      porRol.forEach(o -> combinadas.putIfAbsent(o.id, o));
+      porCargo.forEach(o -> combinadas.putIfAbsent(o.id, o));
+      todas = List.copyOf(combinadas.values());
+    }
 
     Set<Long> idsAsignados = todas.stream().map(o -> o.id).collect(Collectors.toSet());
 

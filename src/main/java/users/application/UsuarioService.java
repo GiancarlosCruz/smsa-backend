@@ -3,6 +3,7 @@ package users.application;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 import users.api.generated.model.ActualizarUsuarioRequest;
 import users.api.generated.model.CrearUsuarioRequest;
@@ -40,6 +41,27 @@ public class UsuarioService {
   @Inject AdministrativoPerfilRepository administrativoPerfilRepository;
   @Inject CargoRepository cargoRepository;
   @Inject KeycloakProvisioningService keycloakProvisioningService;
+
+  @ConfigProperty(name = "seed.admin.enabled")
+  boolean seedAdminEnabled;
+
+  @ConfigProperty(name = "seed.admin.tipo-documento")
+  String seedAdminTipoDocumento;
+
+  @ConfigProperty(name = "seed.admin.numero-documento")
+  String seedAdminNumeroDocumento;
+
+  @ConfigProperty(name = "seed.admin.nombres")
+  String seedAdminNombres;
+
+  @ConfigProperty(name = "seed.admin.apellido-paterno")
+  String seedAdminApellidoPaterno;
+
+  @ConfigProperty(name = "seed.admin.email")
+  String seedAdminEmail;
+
+  @ConfigProperty(name = "seed.admin.fecha-nacimiento")
+  LocalDate seedAdminFechaNacimiento;
 
   /**
    * Keycloak primero (fuera de la transacción local, es una llamada de red
@@ -228,5 +250,63 @@ public class UsuarioService {
       Long sedeReferencia = asignacionesVigentes.stream().findFirst().map(usr -> usr.sedeId).orElse(null);
       throw new AccesoSedeNoPermitidoException(sedeReferencia);
     }
+  }
+
+  /**
+   * Bootstrap: si no existe ningún usuario con rol ADMIN, crea uno con los
+   * datos de seed.admin.* (env vars en prod). Resuelve el bootstrap
+   * paradox: POST /usuarios y POST /usuarios/{id}/roles ya exigen ser
+   * ADMIN, así que el primer ADMIN no se puede crear por la API — se
+   * siembra al arrancar la app, sin ContextoAcceso porque no hay sesión
+   * todavía. Idempotente: no hace nada en arranques posteriores una vez
+   * que ya existe un ADMIN.
+   */
+  public void sembrarAdminSiNoExiste() {
+    if (!seedAdminEnabled) {
+      return;
+    }
+    if (usuarioSedeRolRepository.existeAlgunAdmin()) {
+      return;
+    }
+    if (usuarioRepository.existeDocumento(seedAdminTipoDocumento, seedAdminNumeroDocumento)) {
+      LOG.warnf("seed.admin.numero-documento (%s) ya existe como usuario pero sin rol ADMIN vigente — " +
+              "revisa manualmente, no se sembró un admin nuevo.", seedAdminNumeroDocumento);
+      return;
+    }
+
+    LOG.info("No existe ningún ADMIN todavía, sembrando el admin inicial desde configuración (seed.admin.*)");
+
+    UUID keycloakId = keycloakProvisioningService.crearUsuario(
+            seedAdminNumeroDocumento, seedAdminEmail, seedAdminNombres, seedAdminApellidoPaterno, Rol.ADMIN);
+
+    try {
+      persistirAdminBootstrap(keycloakId);
+      LOG.infof("Admin inicial creado: username/password temporal = %s", seedAdminNumeroDocumento);
+    } catch (RuntimeException e) {
+      LOG.errorf(e, "Falló la escritura local del admin inicial (keycloakId=%s), compensando", keycloakId);
+      keycloakProvisioningService.eliminarPorId(keycloakId);
+      throw e;
+    }
+  }
+
+  @Transactional
+  protected void persistirAdminBootstrap(UUID keycloakId) {
+    Usuario usuario = new Usuario();
+    usuario.keycloakId = keycloakId;
+    usuario.tipoDocumento = seedAdminTipoDocumento;
+    usuario.numeroDocumento = seedAdminNumeroDocumento;
+    usuario.nombres = seedAdminNombres;
+    usuario.apellidoPaterno = seedAdminApellidoPaterno;
+    usuario.email = seedAdminEmail;
+    usuario.estado = EstadoUsuario.ACTIVO;
+    usuario.fechaNacimiento = seedAdminFechaNacimiento;
+    usuarioRepository.persist(usuario);
+
+    UsuarioSedeRol asignacion = new UsuarioSedeRol();
+    asignacion.usuario = usuario;
+    asignacion.sedeId = null; // admin global
+    asignacion.rol = Rol.ADMIN;
+    asignacion.fechaInicio = LocalDate.now();
+    usuarioSedeRolRepository.persist(asignacion);
   }
 }

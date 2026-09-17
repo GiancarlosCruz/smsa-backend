@@ -1,0 +1,93 @@
+{
+  "realm": "edu-superior",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": false,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "clients": [
+    {
+      "clientId": "matricula-api",
+      "name": "Matrícula API (backend / resource server)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "secret": "matricula-api-secret-dev",
+      "defaultClientScopes": [
+        "openid",
+        "web-origins",
+        "profile",
+        "roles",
+        "email"
+      ]
+    },
+    {
+      "clientId": "matricula-web",
+      "name": "Matrícula Web (frontend)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://localhost:4200/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000",
+        "http://localhost:4200"
+      ],
+      "defaultClientScopes": [
+        "openid",
+        "web-origins",
+        "profile",
+        "roles",
+        "email"
+      ],
+      "protocolMappers": [
+        {
+          "name": "audience-matricula-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "matricula-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "roles": {
+    "client": {
+      "matricula-api": [
+        { "name": "ADMIN", "description": "Acceso administrativo total al sistema" },
+        { "name": "DOCENTE", "description": "Personal docente" },
+        { "name": "ESTUDIANTE", "description": "Estudiantes matriculados" },
+        { "name": "ADMINISTRATIVO", "description": "Personal administrativo" }
+      ]
+    }
+  },
+  "users": [
+    {
+      "username": "service-account-matricula-api",
+      "enabled": true,
+      "serviceAccountClientId": "matricula-api",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "query-clients",
+          "view-clients"
+        ]
+      }
+    }
+  ]
+}

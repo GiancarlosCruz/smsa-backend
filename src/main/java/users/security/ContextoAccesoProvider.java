@@ -3,6 +3,7 @@ package users.security;
 import jakarta.enterprise.context.RequestScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.NotAuthorizedException;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import users.domain.exception.UsuarioNoEncontradoException;
 import users.domain.model.Rol;
@@ -38,18 +39,35 @@ public class ContextoAccesoProvider {
   @Produces
   @RequestScoped
   public ContextoAcceso contextoAcceso() {
-    UUID keycloakId = UUID.fromString(jwt.getSubject());
+    if (jwt == null || jwt.getName() == null) {
+      throw new NotAuthorizedException("No se encontró token de autenticación válido");
+    }
 
-    Usuario usuario = usuarioRepository.buscarPorKeycloakId(keycloakId)
-            .orElseThrow(() -> UsuarioNoEncontradoException.porKeycloakId(keycloakId.toString()));
+    // 1. Intentar resolver el usuario por keycloakId (sub) o por DNI (preferred_username)
+    Usuario usuario;
+    String subject = jwt.getSubject();
 
+    if (subject != null && !subject.isBlank()) {
+      UUID keycloakId = UUID.fromString(subject);
+      usuario = usuarioRepository.buscarPorKeycloakId(keycloakId)
+              .orElseThrow(() -> UsuarioNoEncontradoException.porKeycloakId(keycloakId.toString()));
+    } else {
+      // Si el token no tiene claim 'sub', buscamos por 'preferred_username' (DNI)
+      String username = jwt.getClaim("preferred_username");
+      if (username == null || username.isBlank()) {
+        throw new NotAuthorizedException("El token no cuenta con claim 'sub' ni 'preferred_username'");
+      }
+      usuario = usuarioRepository.find("numeroDocumento", username)
+              .firstResultOptional()
+              .orElseThrow(() -> new NotAuthorizedException("Usuario no encontrado con documento: " + username));
+    }
+
+    // 2. El resto de tu lógica permanece exactamente igual:
     List<UsuarioSedeRol> asignacionesVigentes = usuarioSedeRolRepository.vigentesDe(usuario.id);
 
     boolean adminGlobal = asignacionesVigentes.stream()
             .anyMatch(usr -> usr.rol == Rol.ADMIN && usr.esAccesoGlobal());
 
-    // El rol efectivo ya viene validado por @RolesAllowed contra el JWT;
-    // esto es solo informativo para el resto del contexto de negocio.
     Rol rol = asignacionesVigentes.stream()
             .findFirst()
             .map(usr -> usr.rol)

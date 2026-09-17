@@ -19,16 +19,31 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:25.0
     container_name: matricula-keycloak
-    command: start-dev
+    # --import-realm carga automáticamente todo JSON que encuentre en
+    # /opt/keycloak/data/import al arrancar. Solo importa si el realm no
+    # existe todavía — en arranques posteriores con el volumen intacto, no
+    # sobrescribe lo que hayas cambiado a mano en la consola.
+    command: start-dev --import-realm
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
     ports:
       # 8180 externo porque coincide con KEYCLOAK_URL del application.properties (%dev).
       # Interno sigue en 8080, el puerto por defecto de la imagen.
       - "8180:8080"
     volumes:
       - matricula_keycloak_data:/opt/keycloak/data
+      - ./keycloak/import:/opt/keycloak/data/import:ro
+    healthcheck:
+      # La imagen no trae curl/wget; se usa el cliente HTTP embebido de Java.
+      test:
+        - "CMD-SHELL"
+        - "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'"
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
 
 volumes:
   matricula_postgres_data:

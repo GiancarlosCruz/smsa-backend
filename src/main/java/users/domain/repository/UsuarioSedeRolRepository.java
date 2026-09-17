@@ -28,4 +28,9 @@ public class UsuarioSedeRolRepository implements PanacheRepository<UsuarioSedeRo
             usuarioId, rol
     ) > 0;
   }
+
+  /** Usado por UsuarioService.sembrarAdminSiNoExiste() al arrancar la app. */
+  public boolean existeAlgunAdmin() {
+    return count("rol", Rol.ADMIN) > 0;
+  }
 }
