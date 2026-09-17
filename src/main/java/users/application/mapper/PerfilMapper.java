@@ -1,6 +1,7 @@
 package users.application.mapper;
 
 import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 import org.mapstruct.MappingConstants;
 import users.api.generated.model.PerfilDocente;
 import users.api.generated.model.PerfilEstudiante;
@@ -20,5 +21,7 @@ public interface PerfilMapper {
 
   PerfilDocente aDto(DocentePerfil docentePerfil);
 
+  @Mapping(target = "periodoIngreso", ignore = true)
+  @Mapping(target = "tipoRegistro", ignore = true)
   PerfilEstudiante aDto(EstudiantePerfil estudiantePerfil);
 }
